@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+.env.local
+.env.release
+instance/
+data/chapters/*.md
+venv/
+.venv/
+docs/
+bins/
