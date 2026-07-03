@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}世界設定管理 - {{ project.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item active">世界設定管理</li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">世界設定管理</h1>
+  <a href="{{ url_for('world_settings.create', project_id=project.id) }}" class="btn btn-primary">＋新規世界設定</a>
+</div>
+
+<div class="row row-cols-1 row-cols-md-2 g-3">
+  {% for w in settings %}
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">{{ w.name }}</h5>
+        <p class="card-text small">{{ w.world_view or "" }}</p>
+      </div>
+      <div class="card-footer bg-white border-top-0">
+        <a href="{{ url_for('world_settings.edit', project_id=project.id, setting_id=w.id) }}" class="btn btn-sm btn-outline-secondary">編集</a>
+        <form action="{{ url_for('world_settings.delete', project_id=project.id, setting_id=w.id) }}" method="post" class="d-inline" onsubmit="return confirm('削除してよろしいですか？');">
+          <button type="submit" class="btn btn-sm btn-outline-danger">削除</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <p class="text-muted">世界設定が登録されていません。</p>
+  {% endfor %}
+</div>
+{% endblock %}

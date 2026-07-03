@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ "世界設定編集" if is_edit else "新規世界設定" }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4">{{ "世界設定を編集" if is_edit else "新規世界設定を登録" }}</h1>
+
+<form method="post" class="bg-white p-4 rounded shadow-sm" novalidate>
+  {{ form.hidden_tag() }}
+
+  <div class="mb-3">
+    {{ form.name.label(class="form-label") }}
+    {{ form.name(class="form-control" + (" is-invalid" if form.name.errors else "")) }}
+    {% for error in form.name.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+  </div>
+  <div class="mb-3">
+    {{ form.world_view.label(class="form-label") }}
+    {{ form.world_view(class="form-control", rows=3) }}
+  </div>
+  <div class="mb-3">
+    {{ form.era.label(class="form-label") }}
+    {{ form.era(class="form-control", rows=2) }}
+  </div>
+  <div class="mb-3">
+    {{ form.rules.label(class="form-label") }}
+    {{ form.rules(class="form-control", rows=3) }}
+  </div>
+  <div class="mb-3">
+    {{ form.terminology.label(class="form-label") }}
+    {{ form.terminology(class="form-control", rows=3) }}
+  </div>
+  <div class="mb-3">
+    {{ form.other.label(class="form-label") }}
+    {{ form.other(class="form-control", rows=2) }}
+  </div>
+
+  <button type="submit" class="btn btn-primary">保存</button>
+  <a href="{{ url_for('world_settings.list_world_settings', project_id=project.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

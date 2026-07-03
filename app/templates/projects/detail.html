@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ project.title }} - AI Story Studio{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="h3 mb-1">{{ project.title }}</h1>
+    <span class="text-muted">{{ project.genre or "ジャンル未設定" }}</span>
+  </div>
+  <div>
+    <a href="{{ url_for('projects.edit', project_id=project.id) }}" class="btn btn-outline-secondary">作品情報を編集</a>
+  </div>
+</div>
+
+<p>{{ project.synopsis or "あらすじは未登録です。" }}</p>
+<hr>
+
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>キャラクター</span>
+        <a href="{{ url_for('characters.list_characters', project_id=project.id) }}" class="btn btn-sm btn-primary">管理する</a>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for c in project.characters[:5] %}
+        <li class="list-group-item">{{ c.name }}</li>
+        {% else %}
+        <li class="list-group-item text-muted">未登録</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>世界設定</span>
+        <a href="{{ url_for('world_settings.list_world_settings', project_id=project.id) }}" class="btn btn-sm btn-primary">管理する</a>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for w in project.world_settings[:5] %}
+        <li class="list-group-item">{{ w.name }}</li>
+        {% else %}
+        <li class="list-group-item text-muted">未登録</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>章一覧</span>
+        <div>
+          <a href="{{ url_for('chapters.create', project_id=project.id) }}" class="btn btn-sm btn-outline-primary">＋新規章</a>
+          <a href="{{ url_for('chapters.list_chapters', project_id=project.id) }}" class="btn btn-sm btn-primary">管理する</a>
+        </div>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for ch in project.chapters[:5] %}
+        <li class="list-group-item">第{{ ch.chapter_number }}章：{{ ch.title }}</li>
+        {% else %}
+        <li class="list-group-item text-muted">未登録</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>伏線一覧</span>
+        <a href="{{ url_for('foreshadowings.list_foreshadowings', project_id=project.id) }}" class="btn btn-sm btn-primary">管理する</a>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for f in project.foreshadowings[:5] %}
+        <li class="list-group-item">{{ f.title }} <span class="badge status-badge-{{ f.status }}">{{ f.status }}</span></li>
+        {% else %}
+        <li class="list-group-item text-muted">未登録</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+
+<hr>
+<button class="btn btn-success" disabled title="AIシナリオ生成機能は開発予定です">AIで次章生成（開発予定）</button>
+{% endblock %}

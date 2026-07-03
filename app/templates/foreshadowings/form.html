@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ "伏線編集" if is_edit else "新規伏線" }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-4">{{ "伏線を編集" if is_edit else "新規伏線を登録" }}</h1>
+
+<form method="post" class="bg-white p-4 rounded shadow-sm" novalidate>
+  {{ form.hidden_tag() }}
+
+  <div class="mb-3">
+    {{ form.title.label(class="form-label") }}
+    {{ form.title(class="form-control" + (" is-invalid" if form.title.errors else "")) }}
+    {% for error in form.title.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+  </div>
+
+  <div class="mb-3">
+    {{ form.plant_content.label(class="form-label") }}
+    {{ form.plant_content(class="form-control", rows=3) }}
+  </div>
+  <div class="mb-3">
+    {{ form.payoff_content.label(class="form-label") }}
+    {{ form.payoff_content(class="form-control", rows=3) }}
+  </div>
+
+  <div class="row">
+    <div class="col-md-4 mb-3">
+      {{ form.plant_chapter_id.label(class="form-label") }}
+      {{ form.plant_chapter_id(class="form-select") }}
+    </div>
+    <div class="col-md-4 mb-3">
+      {{ form.payoff_chapter_id.label(class="form-label") }}
+      {{ form.payoff_chapter_id(class="form-select") }}
+    </div>
+    <div class="col-md-4 mb-3">
+      {{ form.status.label(class="form-label") }}
+      {{ form.status(class="form-select") }}
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary">保存</button>
+  <a href="{{ url_for('foreshadowings.list_foreshadowings', project_id=project.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

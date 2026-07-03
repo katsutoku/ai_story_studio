@@ -1,0 +1,17 @@
+body {
+  background-color: #f5f6f8;
+}
+
+.card {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.status-badge-pending { background-color: #6c757d; }
+.status-badge-processing { background-color: #0d6efd; }
+.status-badge-completed { background-color: #198754; }
+.status-badge-failed { background-color: #dc3545; }
+
+textarea.markdown-editor {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  min-height: 400px;
+}

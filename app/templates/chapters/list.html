@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}章管理 - {{ project.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item active">章管理</li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">章一覧</h1>
+  <div>
+    <a href="{{ url_for('chapters.create', project_id=project.id) }}" class="btn btn-outline-primary">＋新規章</a>
+    <button class="btn btn-success" disabled title="AIシナリオ生成機能は開発予定です">AIで次章生成</button>
+  </div>
+</div>
+
+<table class="table table-hover bg-white align-middle">
+  <thead>
+    <tr>
+      <th>章番号</th>
+      <th>タイトル</th>
+      <th>要約</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for ch in chapters %}
+    <tr>
+      <td>第{{ ch.chapter_number }}章</td>
+      <td>{{ ch.title }}</td>
+      <td class="small text-muted">{{ (ch.summary or "")[:60] }}</td>
+      <td class="text-end">
+        <a href="{{ url_for('chapters.edit_content', project_id=project.id, chapter_id=ch.id) }}" class="btn btn-sm btn-outline-primary">本文編集</a>
+        <a href="{{ url_for('chapters.edit', project_id=project.id, chapter_id=ch.id) }}" class="btn btn-sm btn-outline-secondary">メタ情報編集</a>
+        <form action="{{ url_for('chapters.delete', project_id=project.id, chapter_id=ch.id) }}" method="post" class="d-inline" onsubmit="return confirm('この章を削除してよろしいですか？');">
+          <button type="submit" class="btn btn-sm btn-outline-danger">削除</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="text-muted text-center py-4">章が登録されていません。</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
