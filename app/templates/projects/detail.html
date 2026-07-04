@@ -84,5 +84,5 @@
 </div>
 
 <hr>
-<button class="btn btn-success" disabled title="AIシナリオ生成機能は開発予定です">AIで次章生成（開発予定）</button>
+<a href="{{ url_for('chapters.generate', project_id=project.id) }}" class="btn btn-success">AIで次章生成</a>
 {% endblock %}

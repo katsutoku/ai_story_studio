@@ -1,7 +1,10 @@
-from flask import Blueprint, abort, flash, redirect, render_template, url_for
+import json
 
+from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
+
+from ..ai_service import AIGenerationError, generate_foreshadowings
 from ..extensions import db
-from ..forms import ForeshadowingForm
+from ..forms import ForeshadowingForm, ForeshadowingGenerateForm
 from ..models import Chapter, Foreshadowing, Project
 
 foreshadowings_bp = Blueprint(
@@ -99,4 +102,101 @@ def delete(project_id, item_id):
     db.session.delete(item)
     db.session.commit()
     flash("伏線を削除しました。", "success")
+    return redirect(url_for("foreshadowings.list_foreshadowings", project_id=project.id))
+
+
+@foreshadowings_bp.route("/generate", methods=["GET", "POST"])
+def generate(project_id):
+    """AIに伏線案を考えさせ、プレビュー画面へ渡す"""
+    project = _get_project_or_404(project_id)
+    form = ForeshadowingGenerateForm()
+    if not form.is_submitted():
+        form.provider.data = current_app.config.get("DEFAULT_AI_PROVIDER", "gemini")
+
+    if form.validate_on_submit():
+        try:
+            candidates = generate_foreshadowings(
+                project,
+                count=form.count.data,
+                additional_notes=form.additional_notes.data or "",
+                provider=form.provider.data,
+            )
+        except AIGenerationError as exc:
+            flash(f"AI生成に失敗しました: {exc}", "danger")
+            return render_template("foreshadowings/generate.html", form=form, project=project)
+
+        if not candidates:
+            flash("AIが候補を生成しませんでした。追加指示を変えて再試行してください。", "danger")
+            return render_template("foreshadowings/generate.html", form=form, project=project)
+
+        # プレビュー表示用に、AIが返した章番号から実際の章タイトルを引けるようにしておく
+        chapter_by_number = {c.chapter_number: c for c in project.chapters}
+
+        generated_json = json.dumps(candidates, ensure_ascii=False)
+        return render_template(
+            "foreshadowings/preview.html",
+            project=project,
+            candidates=candidates,
+            generated_json=generated_json,
+            chapter_by_number=chapter_by_number,
+        )
+
+    return render_template("foreshadowings/generate.html", form=form, project=project)
+
+
+@foreshadowings_bp.route("/generate/confirm", methods=["POST"])
+def generate_confirm(project_id):
+    """プレビュー画面で選択された伏線のみをDBに保存する"""
+    project = _get_project_or_404(project_id)
+
+    generated_json = request.form.get("generated_json", "")
+    selected_indices = {int(i) for i in request.form.getlist("selected") if i.isdigit()}
+
+    try:
+        candidates = json.loads(generated_json)
+    except (json.JSONDecodeError, TypeError):
+        flash("生成結果の読み込みに失敗しました。もう一度生成し直してください。", "danger")
+        return redirect(url_for("foreshadowings.generate", project_id=project.id))
+
+    if not selected_indices:
+        flash("登録する伏線が選択されていません。", "danger")
+        return redirect(url_for("foreshadowings.generate", project_id=project.id))
+
+    # AIが返す章番号 → 実際のChapter.id への変換用マップ
+    chapter_id_by_number = {
+        c.chapter_number: c.id for c in Chapter.query.filter_by(project_id=project.id).all()
+    }
+
+    def _resolve_chapter_id(value):
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return None
+        return chapter_id_by_number.get(number)
+
+    created_count = 0
+    for i, candidate in enumerate(candidates):
+        if i not in selected_indices or not isinstance(candidate, dict):
+            continue
+        title = str(candidate.get("title") or "").strip()
+        if not title:
+            continue  # タイトルが空の候補は登録しない（必須項目のため）
+        item = Foreshadowing(
+            project_id=project.id,
+            title=title[:200],
+            plant_content=candidate.get("plant_content") or None,
+            payoff_content=candidate.get("payoff_content") or None,
+            plant_chapter_id=_resolve_chapter_id(candidate.get("plant_chapter_number")),
+            payoff_chapter_id=_resolve_chapter_id(candidate.get("payoff_chapter_number")),
+            status=Foreshadowing.STATUS_PENDING,
+        )
+        db.session.add(item)
+        created_count += 1
+
+    if created_count == 0:
+        flash("登録できる伏線がありませんでした（タイトルが空でした）。", "danger")
+        return redirect(url_for("foreshadowings.generate", project_id=project.id))
+
+    db.session.commit()
+    flash(f"{created_count}件の伏線を登録しました。内容を確認・編集してください。", "success")
     return redirect(url_for("foreshadowings.list_foreshadowings", project_id=project.id))

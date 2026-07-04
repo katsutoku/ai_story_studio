@@ -1,6 +1,6 @@
 from flask_wtf import FlaskForm
 from wtforms import IntegerField, SelectField, StringField, TextAreaField
-from wtforms.validators import DataRequired, Length, Optional
+from wtforms.validators import DataRequired, Length, NumberRange, Optional
 
 
 class ProjectForm(FlaskForm):
@@ -27,6 +27,31 @@ class CharacterForm(FlaskForm):
     notes = TextAreaField("備考", validators=[Optional()])
 
 
+class CharacterGenerateForm(FlaskForm):
+    """AIキャラクター生成フォーム"""
+
+    count = IntegerField(
+        "生成する人数",
+        default=3,
+        validators=[DataRequired(message="人数は必須です。"), NumberRange(min=1, max=10, message="1〜10人の範囲で指定してください。")],
+    )
+    provider = SelectField(
+        "利用するAI",
+        choices=[
+            ("gemini", "Gemini（Google）"),
+            ("openai", "ChatGPT（OpenAI）"),
+            ("claude", "Claude（Anthropic）"),
+            ("ollama", "Ollama（ローカル実行）"),
+        ],
+        validators=[DataRequired()],
+    )
+    additional_notes = TextAreaField(
+        "追加指示（任意）",
+        validators=[Optional()],
+        description="例：主人公の幼馴染となる女性キャラクターを含めてほしい、など",
+    )
+
+
 class WorldSettingForm(FlaskForm):
     """世界設定フォーム"""
 
@@ -36,6 +61,31 @@ class WorldSettingForm(FlaskForm):
     rules = TextAreaField("ルール", validators=[Optional()])
     terminology = TextAreaField("用語", validators=[Optional()])
     other = TextAreaField("その他設定", validators=[Optional()])
+
+
+class WorldSettingGenerateForm(FlaskForm):
+    """AI世界設定生成フォーム"""
+
+    count = IntegerField(
+        "生成する件数",
+        default=3,
+        validators=[DataRequired(message="件数は必須です。"), NumberRange(min=1, max=10, message="1〜10件の範囲で指定してください。")],
+    )
+    provider = SelectField(
+        "利用するAI",
+        choices=[
+            ("gemini", "Gemini（Google）"),
+            ("openai", "ChatGPT（OpenAI）"),
+            ("claude", "Claude（Anthropic）"),
+            ("ollama", "Ollama（ローカル実行）"),
+        ],
+        validators=[DataRequired()],
+    )
+    additional_notes = TextAreaField(
+        "追加指示（任意）",
+        validators=[Optional()],
+        description="例：現代パートと異界パートの2つの時間軸がある設定にしてほしい、など",
+    )
 
 
 class ChapterForm(FlaskForm):
@@ -57,6 +107,30 @@ class ChapterContentForm(FlaskForm):
     content = TextAreaField("本文(Markdown)", validators=[Optional()])
 
 
+class GenerateChapterForm(FlaskForm):
+    """AI章生成フォーム"""
+
+    chapter_number = IntegerField(
+        "章番号", validators=[DataRequired(message="章番号は必須です。")]
+    )
+    title = StringField("タイトル（任意・仮タイトルとして使用）", validators=[Optional(), Length(max=200)])
+    provider = SelectField(
+        "利用するAI",
+        choices=[
+            ("gemini", "Gemini（Google）"),
+            ("openai", "ChatGPT（OpenAI）"),
+            ("claude", "Claude（Anthropic）"),
+            ("ollama", "Ollama（ローカル実行）"),
+        ],
+        validators=[DataRequired()],
+    )
+    additional_notes = TextAreaField(
+        "この章に関する追加指示（任意）",
+        validators=[Optional()],
+        description="例：この章では〇〇との出会いを描いてほしい、など",
+    )
+
+
 class ForeshadowingForm(FlaskForm):
     """伏線フォーム"""
 
@@ -76,4 +150,29 @@ class ForeshadowingForm(FlaskForm):
             ("failed", "失敗（予定）"),
         ],
         validators=[DataRequired()],
+    )
+
+
+class ForeshadowingGenerateForm(FlaskForm):
+    """AI伏線生成フォーム"""
+
+    count = IntegerField(
+        "生成する件数",
+        default=3,
+        validators=[DataRequired(message="件数は必須です。"), NumberRange(min=1, max=10, message="1〜10件の範囲で指定してください。")],
+    )
+    provider = SelectField(
+        "利用するAI",
+        choices=[
+            ("gemini", "Gemini（Google）"),
+            ("openai", "ChatGPT（OpenAI）"),
+            ("claude", "Claude（Anthropic）"),
+            ("ollama", "Ollama（ローカル実行）"),
+        ],
+        validators=[DataRequired()],
+    )
+    additional_notes = TextAreaField(
+        "追加指示（任意）",
+        validators=[Optional()],
+        description="例：ヒロインの正体に関わる伏線を1つ含めてほしい、など",
     )

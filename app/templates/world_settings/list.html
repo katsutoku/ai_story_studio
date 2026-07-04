@@ -10,7 +10,10 @@
 
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h1 class="h3 mb-0">世界設定管理</h1>
-  <a href="{{ url_for('world_settings.create', project_id=project.id) }}" class="btn btn-primary">＋新規世界設定</a>
+  <div>
+    <a href="{{ url_for('world_settings.generate', project_id=project.id) }}" class="btn btn-success">AIでたたき台を生成</a>
+    <a href="{{ url_for('world_settings.create', project_id=project.id) }}" class="btn btn-primary">＋新規世界設定</a>
+  </div>
 </div>
 
 <div class="row row-cols-1 row-cols-md-2 g-3">

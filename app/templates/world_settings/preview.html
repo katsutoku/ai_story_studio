@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}生成結果の確認 - {{ project.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('world_settings.list_world_settings', project_id=project.id) }}">世界設定管理</a></li>
+    <li class="breadcrumb-item active">生成結果の確認</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">生成結果の確認</h1>
+<p class="text-muted">登録したい世界設定にチェックを入れて「登録する」を押してください。まだDBには保存されていません。内容は登録後に個別編集できます。</p>
+
+<form method="post" action="{{ url_for('world_settings.generate_confirm', project_id=project.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="generated_json" value="{{ generated_json }}">
+
+  <div class="row row-cols-1 row-cols-md-2 g-3 mb-4">
+    {% for c in candidates %}
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="selected" value="{{ loop.index0 }}" id="cand{{ loop.index0 }}" checked>
+            <label class="form-check-label fw-bold" for="cand{{ loop.index0 }}">
+              {{ c.get("name", "（設定名未設定）") }}
+            </label>
+          </div>
+          <p class="card-text small mb-1"><strong>世界設定:</strong> {{ c.get("world_view", "") }}</p>
+          <p class="card-text small mb-1"><strong>時代背景:</strong> {{ c.get("era", "") }}</p>
+          <p class="card-text small mb-1"><strong>ルール:</strong> {{ c.get("rules", "") }}</p>
+          <p class="card-text small mb-1"><strong>用語:</strong> {{ c.get("terminology", "") }}</p>
+          {% if c.get("other") %}
+          <p class="card-text small mb-0 text-muted"><strong>その他:</strong> {{ c.get("other", "") }}</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <p class="text-muted">候補がありませんでした。</p>
+    {% endfor %}
+  </div>
+
+  <button type="submit" class="btn btn-primary">選択した世界設定を登録する</button>
+  <a href="{{ url_for('world_settings.generate', project_id=project.id) }}" class="btn btn-outline-secondary">やり直す</a>
+  <a href="{{ url_for('world_settings.list_world_settings', project_id=project.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

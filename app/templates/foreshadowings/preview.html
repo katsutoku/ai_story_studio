@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}生成結果の確認 - {{ project.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('foreshadowings.list_foreshadowings', project_id=project.id) }}">伏線管理</a></li>
+    <li class="breadcrumb-item active">生成結果の確認</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">生成結果の確認</h1>
+<p class="text-muted">登録したい伏線にチェックを入れて「登録する」を押してください。まだDBには保存されていません。配置章・回収章が「未設定」の場合は、登録後に手動で編集してください。</p>
+
+<form method="post" action="{{ url_for('foreshadowings.generate_confirm', project_id=project.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="generated_json" value="{{ generated_json }}">
+
+  <div class="row row-cols-1 row-cols-md-2 g-3 mb-4">
+    {% for c in candidates %}
+    {% set plant_ch = chapter_by_number.get(c.get("plant_chapter_number")) if c.get("plant_chapter_number") is not none else None %}
+    {% set payoff_ch = chapter_by_number.get(c.get("payoff_chapter_number")) if c.get("payoff_chapter_number") is not none else None %}
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="selected" value="{{ loop.index0 }}" id="cand{{ loop.index0 }}" checked>
+            <label class="form-check-label fw-bold" for="cand{{ loop.index0 }}">
+              {{ c.get("title", "（タイトル未設定）") }}
+            </label>
+          </div>
+          <p class="card-text small mb-1"><strong>配置内容:</strong> {{ c.get("plant_content", "") }}</p>
+          <p class="card-text small mb-1"><strong>回収内容:</strong> {{ c.get("payoff_content", "") }}</p>
+          <p class="card-text small mb-0 text-muted">
+            <strong>配置章:</strong>
+            {% if plant_ch %}第{{ plant_ch.chapter_number }}章「{{ plant_ch.title }}」{% else %}未設定{% endif %}
+            ／
+            <strong>回収章:</strong>
+            {% if payoff_ch %}第{{ payoff_ch.chapter_number }}章「{{ payoff_ch.title }}」{% else %}未設定{% endif %}
+          </p>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <p class="text-muted">候補がありませんでした。</p>
+    {% endfor %}
+  </div>
+
+  <button type="submit" class="btn btn-primary">選択した伏線を登録する</button>
+  <a href="{{ url_for('foreshadowings.generate', project_id=project.id) }}" class="btn btn-outline-secondary">やり直す</a>
+  <a href="{{ url_for('foreshadowings.list_foreshadowings', project_id=project.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

@@ -86,6 +86,11 @@ class Chapter(db.Model):
 
     __tablename__ = "chapters"
 
+    STATUS_PENDING = "pending"
+    STATUS_PROCESSING = "processing"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+
     id = db.Column(db.Integer, primary_key=True)
     project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
 
@@ -96,6 +101,11 @@ class Chapter(db.Model):
 
     # 本文はMarkdownファイルとして保存し、DBには相対パスのみ保持する
     content_path = db.Column(db.String(300), nullable=True)
+
+    # AIシナリオ生成のステータス（未生成の場合はNULL）
+    generation_status = db.Column(db.String(20), nullable=True)
+    generation_error = db.Column(db.Text, nullable=True)
+    generation_provider = db.Column(db.String(20), nullable=True)  # openai / gemini / claude / ollama
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

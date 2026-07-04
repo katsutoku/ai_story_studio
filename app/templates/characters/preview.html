@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}生成結果の確認 - {{ project.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('characters.list_characters', project_id=project.id) }}">キャラクター管理</a></li>
+    <li class="breadcrumb-item active">生成結果の確認</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">生成結果の確認</h1>
+<p class="text-muted">登録したいキャラクターにチェックを入れて「登録する」を押してください。まだDBには保存されていません。内容は登録後に個別編集できます。</p>
+
+<form method="post" action="{{ url_for('characters.generate_confirm', project_id=project.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="generated_json" value="{{ generated_json }}">
+
+  <div class="row row-cols-1 row-cols-md-2 g-3 mb-4">
+    {% for c in candidates %}
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="selected" value="{{ loop.index0 }}" id="cand{{ loop.index0 }}" checked>
+            <label class="form-check-label fw-bold" for="cand{{ loop.index0 }}">
+              {{ c.get("name", "（名前未設定）") }}
+            </label>
+          </div>
+          <p class="card-subtitle text-muted mb-2">{{ c.get("age", "") }} / {{ c.get("gender", "") }}</p>
+          <p class="card-text small mb-1"><strong>性格:</strong> {{ c.get("personality", "") }}</p>
+          <p class="card-text small mb-1"><strong>外見:</strong> {{ c.get("appearance", "") }}</p>
+          <p class="card-text small mb-1"><strong>背景:</strong> {{ c.get("background", "") }}</p>
+          {% if c.get("notes") %}
+          <p class="card-text small mb-0 text-muted"><strong>備考:</strong> {{ c.get("notes", "") }}</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <p class="text-muted">候補がありませんでした。</p>
+    {% endfor %}
+  </div>
+
+  <button type="submit" class="btn btn-primary">選択したキャラクターを登録する</button>
+  <a href="{{ url_for('characters.generate', project_id=project.id) }}" class="btn btn-outline-secondary">やり直す</a>
+  <a href="{{ url_for('characters.list_characters', project_id=project.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}
