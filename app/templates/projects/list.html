@@ -24,6 +24,7 @@
       <td class="text-end">
         <a href="{{ url_for('projects.edit', project_id=project.id) }}" class="btn btn-sm btn-outline-secondary">編集</a>
         <form action="{{ url_for('projects.delete', project_id=project.id) }}" method="post" class="d-inline" onsubmit="return confirm('この作品を削除してよろしいですか？関連するキャラクターや章もすべて削除されます。');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-sm btn-outline-danger">削除</button>
         </form>
       </td>

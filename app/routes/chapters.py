@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from flask import Blueprint, abort, current_app, flash, redirect, render_template, url_for
+from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 
-from ..ai_service import AIGenerationError, generate_chapter_content
+from ..ai_service import AIGenerationError, generate_chapter_content, revise_chapter_content
 from ..extensions import db
-from ..forms import ChapterContentForm, ChapterForm, GenerateChapterForm
+from ..forms import ChapterContentForm, ChapterForm, ChapterReviseForm, GenerateChapterForm
 from ..models import Chapter, Project
 
 chapters_bp = Blueprint("chapters", __name__, url_prefix="/projects/<int:project_id>/chapters")
@@ -29,12 +29,24 @@ def _chapter_md_path(project_id: int, chapter_id: int) -> Path:
     return directory / f"project_{project_id}_chapter_{chapter_id}.md"
 
 
+def _normalize_newlines(text: str) -> str:
+    """改行コードを \\n に統一する。
+
+    ブラウザはtextarea送信時に内部の改行(\\n)をすべて\\r\\n(CRLF)に変換して送信するため、
+    正規化せずに保存すると、編集→保存を繰り返すたびに\\rが本文に蓄積し、
+    表示環境によっては余分な改行に見えてしまう。保存前に必ずこれを通すことで防止する。
+    """
+    if not text:
+        return text
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _read_chapter_content(path: Path) -> str:
     """Markdownファイルが存在しない場合は空文字を返し、システム停止を防止する"""
     if not path.exists():
         return ""
     try:
-        return path.read_text(encoding="utf-8")
+        return _normalize_newlines(path.read_text(encoding="utf-8"))
     except OSError:
         return ""
 
@@ -104,7 +116,7 @@ def edit_content(project_id, chapter_id):
     if form.validate_on_submit():
         try:
             md_path.parent.mkdir(parents=True, exist_ok=True)
-            md_path.write_text(form.content.data or "", encoding="utf-8")
+            md_path.write_text(_normalize_newlines(form.content.data or ""), encoding="utf-8")
         except OSError:
             # ファイル保存失敗時はDB更新を中止し、エラーメッセージを表示する
             flash("本文の保存に失敗しました。もう一度お試しください。", "danger")
@@ -139,6 +151,43 @@ def delete(project_id, chapter_id):
     db.session.delete(chapter)
     db.session.commit()
     flash("章を削除しました。", "success")
+    return redirect(url_for("chapters.list_chapters", project_id=project.id))
+
+
+@chapters_bp.route("/delete_all", methods=["POST"])
+def delete_all(project_id):
+    """この作品の章をすべて削除する（全体プロットの章だけ再生成したい場合などに使用）"""
+    project = _get_project_or_404(project_id)
+    chapters = Chapter.query.filter_by(project_id=project.id).all()
+
+    if not chapters:
+        flash("削除対象の章がありません。", "danger")
+        return redirect(url_for("chapters.list_chapters", project_id=project.id))
+
+    # 伏線が削除対象の章を参照していると不整合になるため、先に参照を外しておく
+    from ..models import Foreshadowing
+
+    chapter_ids = [c.id for c in chapters]
+    Foreshadowing.query.filter(
+        Foreshadowing.project_id == project.id, Foreshadowing.plant_chapter_id.in_(chapter_ids)
+    ).update({"plant_chapter_id": None}, synchronize_session=False)
+    Foreshadowing.query.filter(
+        Foreshadowing.project_id == project.id, Foreshadowing.payoff_chapter_id.in_(chapter_ids)
+    ).update({"payoff_chapter_id": None}, synchronize_session=False)
+
+    deleted_count = 0
+    for chapter in chapters:
+        md_path = _chapter_md_path(project.id, chapter.id)
+        if md_path.exists():
+            try:
+                md_path.unlink()
+            except OSError:
+                pass
+        db.session.delete(chapter)
+        deleted_count += 1
+
+    db.session.commit()
+    flash(f"章を{deleted_count}件すべて削除しました。", "success")
     return redirect(url_for("chapters.list_chapters", project_id=project.id))
 
 
@@ -235,7 +284,7 @@ def _run_generation(
     md_path = _chapter_md_path(project.id, chapter.id)
     try:
         md_path.parent.mkdir(parents=True, exist_ok=True)
-        md_path.write_text(content, encoding="utf-8")
+        md_path.write_text(_normalize_newlines(content), encoding="utf-8")
     except OSError as exc:
         # ファイル保存失敗時はDB更新を中止し、エラーメッセージを表示する
         chapter.generation_status = Chapter.STATUS_FAILED
@@ -257,3 +306,79 @@ def _run_generation(
     return redirect(
         url_for("chapters.edit_content", project_id=project.id, chapter_id=chapter.id)
     )
+
+
+@chapters_bp.route("/<int:chapter_id>/revise", methods=["GET", "POST"])
+def revise(project_id, chapter_id):
+    """既存の本文に対して、指示した変更点だけをAIに反映させる（部分修正）"""
+    project = _get_project_or_404(project_id)
+    chapter = _get_chapter_or_404(project_id, chapter_id)
+
+    md_path = _chapter_md_path(project.id, chapter.id)
+    existing_content = _read_chapter_content(md_path)
+
+    if not existing_content:
+        flash("この章にはまだ本文がありません。先に本文を生成してください。", "danger")
+        return redirect(url_for("chapters.list_chapters", project_id=project.id))
+
+    form = ChapterReviseForm()
+    if not form.is_submitted():
+        form.provider.data = chapter.generation_provider or current_app.config.get(
+            "DEFAULT_AI_PROVIDER", "gemini"
+        )
+
+    if form.validate_on_submit():
+        try:
+            revised_content = revise_chapter_content(
+                project,
+                chapter,
+                existing_content=existing_content,
+                revision_instructions=form.revision_instructions.data,
+                provider=form.provider.data,
+            )
+            revised_content = _normalize_newlines(revised_content)
+        except AIGenerationError as exc:
+            flash(f"AIによる修正に失敗しました: {exc}", "danger")
+            return render_template(
+                "chapters/revise.html", form=form, project=project, chapter=chapter,
+                existing_content=existing_content,
+            )
+
+        return render_template(
+            "chapters/revise_preview.html",
+            project=project,
+            chapter=chapter,
+            existing_content=existing_content,
+            revised_content=revised_content,
+        )
+
+    return render_template(
+        "chapters/revise.html", form=form, project=project, chapter=chapter,
+        existing_content=existing_content,
+    )
+
+
+@chapters_bp.route("/<int:chapter_id>/revise/confirm", methods=["POST"])
+def revise_confirm(project_id, chapter_id):
+    """修正結果プレビューで確認された本文で、既存のMarkdownファイルを上書きする"""
+    project = _get_project_or_404(project_id)
+    chapter = _get_chapter_or_404(project_id, chapter_id)
+
+    revised_content = request.form.get("revised_content", "")
+    if not revised_content.strip():
+        flash("本文が空のため保存できませんでした。", "danger")
+        return redirect(url_for("chapters.revise", project_id=project.id, chapter_id=chapter.id))
+
+    md_path = _chapter_md_path(project.id, chapter.id)
+    try:
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(_normalize_newlines(revised_content), encoding="utf-8")
+    except OSError as exc:
+        flash(f"修正後の本文の保存に失敗しました: {exc}", "danger")
+        return redirect(url_for("chapters.revise", project_id=project.id, chapter_id=chapter.id))
+
+    chapter.content_path = str(md_path)
+    db.session.commit()
+
+    flash("修正後の本文を保存しました。", "success")
+    return redirect(url_for("chapters.edit_content", project_id=project.id, chapter_id=chapter.id))

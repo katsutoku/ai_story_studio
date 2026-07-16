@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}本文をAIで部分修正 - 第{{ chapter.chapter_number }}章{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('chapters.list_chapters', project_id=project.id) }}">章管理</a></li>
+    <li class="breadcrumb-item active">本文をAIで部分修正</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-1">第{{ chapter.chapter_number }}章：{{ chapter.title }}</h1>
+<p class="text-muted">
+  今の本文を全部書き直すのではなく、指示した変更点だけをAIに反映させます。
+  指示していない部分の文章・トーンはできるだけそのまま維持されます。
+</p>
+
+<div class="card mb-4">
+  <div class="card-header">現在の本文（参考）</div>
+  <div class="card-body">
+    <pre class="mb-0" style="white-space: pre-wrap; max-height: 300px; overflow-y: auto;">{{ existing_content }}</pre>
+  </div>
+</div>
+
+<form method="post" class="bg-white p-4 rounded shadow-sm ai-generate-form" novalidate>
+  {{ form.hidden_tag() }}
+
+  <div class="mb-3">
+    {{ form.revision_instructions.label(class="form-label") }}
+    {{ form.revision_instructions(class="form-control" + (" is-invalid" if form.revision_instructions.errors else ""), rows=5, placeholder="例：被害者を〇〇から△△に変更してください。主人公と被害者が会うのは当日ではなく前日の出来事に変更してください。") }}
+    {% for error in form.revision_instructions.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    {% if form.revision_instructions.description %}<div class="form-text">{{ form.revision_instructions.description }}</div>{% endif %}
+  </div>
+
+  <div class="mb-3">
+    {{ form.provider.label(class="form-label") }}
+    {{ form.provider(class="form-select") }}
+  </div>
+
+  <button type="submit" class="btn btn-success" data-loading-text="AIが本文を修正しています。しばらくお待ちください…">修正する</button>
+  <a href="{{ url_for('chapters.list_chapters', project_id=project.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

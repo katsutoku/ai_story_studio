@@ -13,6 +13,12 @@
   <div>
     <a href="{{ url_for('foreshadowings.generate', project_id=project.id) }}" class="btn btn-success">AIでたたき台を生成</a>
     <a href="{{ url_for('foreshadowings.create', project_id=project.id) }}" class="btn btn-primary">＋新規伏線</a>
+    {% if items %}
+    <form action="{{ url_for('foreshadowings.delete_all', project_id=project.id) }}" method="post" class="d-inline" onsubmit="return confirm('伏線を全て削除します。元に戻せません。よろしいですか？');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-outline-danger">すべて削除</button>
+    </form>
+    {% endif %}
   </div>
 </div>
 
@@ -36,6 +42,7 @@
       <td class="text-end">
         <a href="{{ url_for('foreshadowings.edit', project_id=project.id, item_id=f.id) }}" class="btn btn-sm btn-outline-secondary">編集</a>
         <form action="{{ url_for('foreshadowings.delete', project_id=project.id, item_id=f.id) }}" method="post" class="d-inline" onsubmit="return confirm('削除してよろしいですか？');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-sm btn-outline-danger">削除</button>
         </form>
       </td>

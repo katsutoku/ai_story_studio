@@ -16,7 +16,7 @@
   生成後は内容を確認してから登録するかどうかを選べます。
 </p>
 
-<form method="post" class="bg-white p-4 rounded shadow-sm" novalidate>
+<form method="post" class="bg-white p-4 rounded shadow-sm ai-generate-form" novalidate>
   {{ form.hidden_tag() }}
 
   <div class="row">
@@ -36,7 +36,7 @@
     {{ form.additional_notes(class="form-control", rows=4, placeholder="例：ヒロインの正体に関わる伏線を1つ含めてほしい、など") }}
   </div>
 
-  <button type="submit" class="btn btn-success">生成する</button>
+  <button type="submit" class="btn btn-success" data-loading-text="AIが伏線案を考えています。しばらくお待ちください…">生成する</button>
   <a href="{{ url_for('foreshadowings.list_foreshadowings', project_id=project.id) }}" class="btn btn-outline-secondary">キャンセル</a>
 </form>
 {% endblock %}

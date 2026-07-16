@@ -15,3 +15,21 @@ textarea.markdown-editor {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   min-height: 400px;
 }
+
+.ai-loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.85);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-loading-box {
+  text-align: center;
+  padding: 2rem 3rem;
+  background: #ffffff;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}

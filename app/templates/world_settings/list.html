@@ -27,6 +27,7 @@
       <div class="card-footer bg-white border-top-0">
         <a href="{{ url_for('world_settings.edit', project_id=project.id, setting_id=w.id) }}" class="btn btn-sm btn-outline-secondary">編集</a>
         <form action="{{ url_for('world_settings.delete', project_id=project.id, setting_id=w.id) }}" method="post" class="d-inline" onsubmit="return confirm('削除してよろしいですか？');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-sm btn-outline-danger">削除</button>
         </form>
       </div>

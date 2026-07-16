@@ -11,6 +11,40 @@ class ProjectForm(FlaskForm):
     )
     genre = StringField("ジャンル", validators=[Optional(), Length(max=100)])
     synopsis = TextAreaField("あらすじ", validators=[Optional()])
+    constraints = TextAreaField(
+        "禁止事項・既知の事実（任意）",
+        validators=[Optional()],
+        description=(
+            "AI生成のたびに毎回自動で反映される。例：「主人公が真犯人であることは"
+            "最終章まで読者に悟らせないこと」「被害者Aの死亡推定時刻は22時、主人公は"
+            "その時刻は駅前の喫茶店にいたことにする」など"
+        ),
+    )
+
+
+class PlotGenerateForm(FlaskForm):
+    """AI全体プロット生成フォーム（おまかせ生成モード）"""
+
+    chapter_count = IntegerField(
+        "章数",
+        default=5,
+        validators=[DataRequired(message="章数は必須です。"), NumberRange(min=1, max=20, message="1〜20章の範囲で指定してください。")],
+    )
+    provider = SelectField(
+        "利用するAI",
+        choices=[
+            ("gemini", "Gemini（Google）"),
+            ("openai", "ChatGPT（OpenAI）"),
+            ("claude", "Claude（Anthropic）"),
+            ("ollama", "Ollama（ローカル実行）"),
+        ],
+        validators=[DataRequired()],
+    )
+    additional_notes = TextAreaField(
+        "作品への大まかな要望（任意）",
+        validators=[Optional()],
+        description="例：ヒロインが実は最終章の黒幕とつながっている、というミステリー要素を入れてほしい、など",
+    )
 
 
 class CharacterForm(FlaskForm):
@@ -105,6 +139,26 @@ class ChapterContentForm(FlaskForm):
     """章本文(Markdown)編集フォーム"""
 
     content = TextAreaField("本文(Markdown)", validators=[Optional()])
+
+
+class ChapterReviseForm(FlaskForm):
+    """AI本文部分修正フォーム"""
+
+    revision_instructions = TextAreaField(
+        "修正指示",
+        validators=[DataRequired(message="修正指示は必須です。")],
+        description="例：被害者を〇〇から△△に変更してください。主人公と被害者が会うのは当日ではなく前日の出来事に変更してください。",
+    )
+    provider = SelectField(
+        "利用するAI",
+        choices=[
+            ("gemini", "Gemini（Google）"),
+            ("openai", "ChatGPT（OpenAI）"),
+            ("claude", "Claude（Anthropic）"),
+            ("ollama", "Ollama（ローカル実行）"),
+        ],
+        validators=[DataRequired()],
+    )
 
 
 class GenerateChapterForm(FlaskForm):

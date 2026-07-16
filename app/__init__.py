@@ -23,6 +23,7 @@ def create_app(config_class: type = Config) -> Flask:
     from .routes.world_settings import world_settings_bp
     from .routes.chapters import chapters_bp
     from .routes.foreshadowings import foreshadowings_bp
+    from .routes.plot import plot_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(projects_bp)
@@ -30,6 +31,7 @@ def create_app(config_class: type = Config) -> Flask:
     app.register_blueprint(world_settings_bp)
     app.register_blueprint(chapters_bp)
     app.register_blueprint(foreshadowings_bp)
+    app.register_blueprint(plot_bp)
 
     register_error_handlers(app)
 

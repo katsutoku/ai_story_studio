@@ -12,6 +12,9 @@ class Project(db.Model):
     title = db.Column(db.String(200), nullable=False)
     synopsis = db.Column(db.Text, nullable=True)  # あらすじ
     genre = db.Column(db.String(100), nullable=True)
+    # 禁止事項・既知の事実（例：「主人公が犯人だと悟らせない」「被害者の死亡推定時刻は22時」など）
+    # AI生成のたびに毎回プロンプトへ差し込まれる
+    constraints = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

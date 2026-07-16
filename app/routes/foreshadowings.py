@@ -105,6 +105,24 @@ def delete(project_id, item_id):
     return redirect(url_for("foreshadowings.list_foreshadowings", project_id=project.id))
 
 
+@foreshadowings_bp.route("/delete_all", methods=["POST"])
+def delete_all(project_id):
+    """この作品の伏線をすべて削除する（全体プロットの伏線だけ再生成したい場合などに使用）"""
+    project = _get_project_or_404(project_id)
+    items = Foreshadowing.query.filter_by(project_id=project.id).all()
+
+    if not items:
+        flash("削除対象の伏線がありません。", "danger")
+        return redirect(url_for("foreshadowings.list_foreshadowings", project_id=project.id))
+
+    deleted_count = len(items)
+    for item in items:
+        db.session.delete(item)
+    db.session.commit()
+    flash(f"伏線を{deleted_count}件すべて削除しました。", "success")
+    return redirect(url_for("foreshadowings.list_foreshadowings", project_id=project.id))
+
+
 @foreshadowings_bp.route("/generate", methods=["GET", "POST"])
 def generate(project_id):
     """AIに伏線案を考えさせ、プレビュー画面へ渡す"""

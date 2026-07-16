@@ -22,7 +22,7 @@
   作品情報・キャラクター・世界設定・過去章の要約・未回収の伏線を自動的にプロンプトへ含めて生成します。
 </p>
 
-<form method="post" class="bg-white p-4 rounded shadow-sm" novalidate>
+<form method="post" class="bg-white p-4 rounded shadow-sm ai-generate-form" novalidate>
   {{ form.hidden_tag() }}
 
   <div class="row">
@@ -47,7 +47,7 @@
     {{ form.additional_notes(class="form-control", rows=4, placeholder="例：この章では〇〇との出会いを描いてほしい、など") }}
   </div>
 
-  <button type="submit" class="btn btn-success">
+  <button type="submit" class="btn btn-success" data-loading-text="AIが章の本文を執筆中です。しばらくお待ちください…">
     {{ "再生成する" if chapter else "生成する" }}
   </button>
   <a href="{{ url_for('chapters.list_chapters', project_id=project.id) }}" class="btn btn-outline-secondary">キャンセル</a>

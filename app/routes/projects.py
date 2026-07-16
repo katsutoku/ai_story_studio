@@ -29,6 +29,7 @@ def create():
             title=form.title.data,
             genre=form.genre.data,
             synopsis=form.synopsis.data,
+            constraints=form.constraints.data,
         )
         db.session.add(project)
         db.session.commit()
@@ -48,6 +49,7 @@ def edit(project_id):
         project.title = form.title.data
         project.genre = form.genre.data
         project.synopsis = form.synopsis.data
+        project.constraints = form.constraints.data
         db.session.commit()
         flash("作品情報を更新しました。", "success")
         return redirect(url_for("projects.detail", project_id=project.id))

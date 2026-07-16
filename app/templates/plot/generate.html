@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}AIで全体プロットを生成 - {{ project.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item active">AIで全体プロットを生成</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">AIで全体プロットを生成（おまかせ生成モード）</h1>
+<p class="text-muted">
+  作品タイトル・ジャンル・あらすじと、下の「大まかな要望」だけをもとに、AIが結末までの設計図を一括で考えます。<br>
+  キャラクター・世界設定・全章のあらすじ（本文はまだ書きません）・伏線を、すべて矛盾なく連動させて提案します。<br>
+  生成後は内容を確認し、必要なものだけ選んで登録できます。
+</p>
+
+<form method="post" class="bg-white p-4 rounded shadow-sm ai-generate-form" novalidate>
+  {{ form.hidden_tag() }}
+
+  <div class="row">
+    <div class="col-md-4 mb-3">
+      {{ form.chapter_count.label(class="form-label") }}
+      {{ form.chapter_count(class="form-control" + (" is-invalid" if form.chapter_count.errors else "")) }}
+      {% for error in form.chapter_count.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-8 mb-3">
+      {{ form.provider.label(class="form-label") }}
+      {{ form.provider(class="form-select") }}
+    </div>
+  </div>
+
+  <div class="mb-3">
+    {{ form.additional_notes.label(class="form-label") }}
+    {{ form.additional_notes(class="form-control", rows=5, placeholder="例：ヒロインが実は最終章の黒幕とつながっている、というミステリー要素を入れてほしい、など") }}
+  </div>
+
+  <button type="submit" class="btn btn-success" data-loading-text="AIが全体プロットを構想しています。章数が多いほど時間がかかります…">生成する（少し時間がかかります）</button>
+  <a href="{{ url_for('projects.detail', project_id=project.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

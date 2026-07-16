@@ -13,6 +13,12 @@
   <div>
     <a href="{{ url_for('chapters.create', project_id=project.id) }}" class="btn btn-outline-primary">＋新規章</a>
     <a href="{{ url_for('chapters.generate', project_id=project.id) }}" class="btn btn-success">AIで次章生成</a>
+    {% if chapters %}
+    <form action="{{ url_for('chapters.delete_all', project_id=project.id) }}" method="post" class="d-inline" onsubmit="return confirm('章を全て削除します。本文のMarkdownファイルも削除され、元に戻せません。よろしいですか？');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-outline-danger">すべて削除</button>
+    </form>
+    {% endif %}
   </div>
 </div>
 
@@ -45,8 +51,12 @@
         <a href="{{ url_for('chapters.regenerate', project_id=project.id, chapter_id=ch.id) }}" class="btn btn-sm btn-warning">再生成</a>
         {% endif %}
         <a href="{{ url_for('chapters.edit_content', project_id=project.id, chapter_id=ch.id) }}" class="btn btn-sm btn-outline-primary">本文編集</a>
+        {% if ch.content_path %}
+        <a href="{{ url_for('chapters.revise', project_id=project.id, chapter_id=ch.id) }}" class="btn btn-sm btn-outline-success">AIで部分修正</a>
+        {% endif %}
         <a href="{{ url_for('chapters.edit', project_id=project.id, chapter_id=ch.id) }}" class="btn btn-sm btn-outline-secondary">メタ情報編集</a>
         <form action="{{ url_for('chapters.delete', project_id=project.id, chapter_id=ch.id) }}" method="post" class="d-inline" onsubmit="return confirm('この章を削除してよろしいですか？');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-sm btn-outline-danger">削除</button>
         </form>
       </td>
