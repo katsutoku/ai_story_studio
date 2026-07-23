@@ -407,6 +407,77 @@ def generate_foreshadowings(
     return _parse_json_array(raw_text)
 
 
+RELATIONSHIP_JSON_INSTRUCTIONS = (
+    "\n出力は必ず次のJSON配列形式のみとし、前置き・説明文・Markdownのコードフェンスは一切含めないこと。\n"
+    '[{"from": "キャラクターA", "to": "キャラクターB", "relationship": "AからBへの関係性（短く）"}, ...]\n'
+    "「from」「to」は、渡されたキャラクター一覧に実在する名前を必ずそのまま使うこと（表記ゆれ禁止）。"
+    "関係が双方向的なもの（友人、幼馴染など）は1本の矢印で表現してよい。"
+    "一方的・非対称な関係（疑惑、片思い、恨みなど）は「from」を起点として表現すること。"
+)
+
+
+def build_relationship_prompt(project: Project, additional_notes: str = "") -> str:
+    """登録済みのキャラクター・世界設定・章の要約・伏線から、人物相関図の元になる
+    関係性データをAIに考えさせるプロンプトを組み立てる。
+    """
+    lines = [
+        "あなたは経験豊富なノベルゲーム／アドベンチャーゲームのシナリオ分析アシスタントです。",
+        "以下の作品情報をもとに、登場人物同士の人間関係を整理してください。",
+        "制作者がストーリー全体の人物相関を俯瞰的に把握するための相関図の元データとして使います。",
+        "",
+        f"# 作品タイトル: {project.title}",
+        f"# ジャンル: {project.genre or '未設定'}",
+        f"# あらすじ: {project.synopsis or '未設定'}",
+    ]
+
+    if project.constraints:
+        lines.append(f"\n## 禁止事項・既知の事実（この内容と矛盾する関係性を書かないこと）\n{project.constraints}")
+
+    lines.append("\n## キャラクター一覧（relationshipのfrom/toはこの名前のみを使うこと）")
+    if project.characters:
+        for c in project.characters:
+            lines.append(
+                f"- {c.name}（{c.age or '年齢不明'} / {c.gender or '性別不明'}）"
+                f" 性格: {c.personality or '未設定'} / 背景: {c.background or '未設定'}"
+            )
+    else:
+        lines.append("- （キャラクターが登録されていません）")
+
+    if project.world_settings:
+        lines.append("\n## 世界設定")
+        for w in project.world_settings:
+            lines.append(f"- {w.name}: {w.world_view or ''}")
+
+    if project.chapters:
+        lines.append("\n## 各章の要約（人物同士の関わりが分かる場合は参考にすること）")
+        for ch in sorted(project.chapters, key=lambda c: c.chapter_number):
+            lines.append(f"- 第{ch.chapter_number}章「{ch.title}」: {ch.summary or ''}")
+
+    if project.foreshadowings:
+        lines.append("\n## 伏線（人物間の隠された関係性のヒントになる場合がある）")
+        for f in project.foreshadowings:
+            lines.append(f"- {f.title}: {f.plant_content or ''}")
+
+    if additional_notes:
+        lines.append("\n## 追加指示")
+        lines.append(additional_notes)
+
+    lines.append(RELATIONSHIP_JSON_INSTRUCTIONS)
+    return "\n".join(lines)
+
+
+def generate_relationships(
+    project: Project, additional_notes: str = "", provider: str = ""
+) -> list[dict]:
+    """AIに人物同士の関係性を考えさせ、パース済みの辞書のリストを返す。
+
+    各要素は {"from", "to", "relationship"} を持つ。
+    """
+    prompt = build_relationship_prompt(project, additional_notes)
+    raw_text = _dispatch(prompt, provider)
+    return _parse_json_array(raw_text)
+
+
 PLOT_JSON_INSTRUCTIONS = (
     "\n出力は必ず次のJSONオブジェクト形式のみとし、前置き・説明文・Markdownのコードフェンスは"
     "一切含めないこと。章番号は指定された開始番号から連番にすること。\n"
@@ -586,6 +657,7 @@ def _generate_with_openai(prompt: str) -> str:
             model=current_app.config.get("OPENAI_MODEL", "gpt-4o-mini"),
             messages=[{"role": "user", "content": prompt}],
             temperature=0.9,
+            max_tokens=current_app.config.get("AI_MAX_OUTPUT_TOKENS", 8192),
         )
     except openai_module.AuthenticationError as exc:
         raise AIGenerationError(f"OpenAI APIの認証に失敗しました: {exc}") from exc
@@ -620,6 +692,7 @@ def _generate_with_gemini(prompt: str) -> str:
         response = client.models.generate_content(
             model=current_app.config.get("GEMINI_MODEL", "gemini-2.5-flash"),
             contents=prompt,
+            config={"max_output_tokens": current_app.config.get("AI_MAX_OUTPUT_TOKENS", 8192)},
         )
     except genai_errors.ClientError as exc:
         raise AIGenerationError(f"Gemini APIへのリクエストが拒否されました（認証情報等を確認してください）: {exc}") from exc
@@ -651,7 +724,7 @@ def _generate_with_claude(prompt: str) -> str:
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model=current_app.config.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
-            max_tokens=4096,
+            max_tokens=current_app.config.get("AI_MAX_OUTPUT_TOKENS", 8192),
             messages=[{"role": "user", "content": prompt}],
         )
     except anthropic.AuthenticationError as exc:
@@ -682,8 +755,15 @@ def _generate_with_ollama(prompt: str) -> str:
     try:
         resp = httpx.post(
             f"{base_url.rstrip('/')}/api/generate",
-            json={"model": model, "prompt": prompt, "stream": False},
-            timeout=120.0,
+            json={
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "num_predict": current_app.config.get("AI_MAX_OUTPUT_TOKENS", 8192),
+                },
+            },
+            timeout=300.0,
         )
         resp.raise_for_status()
         data = resp.json()

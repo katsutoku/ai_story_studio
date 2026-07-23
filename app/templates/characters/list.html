@@ -20,10 +20,31 @@
   {% for c in characters %}
   <div class="col">
     <div class="card h-100">
-      <div class="card-body">
-        <h5 class="card-title">{{ c.name }}</h5>
-        <p class="card-subtitle text-muted mb-2">{{ c.age or "年齢不明" }} / {{ c.gender or "性別不明" }}</p>
-        <p class="card-text small">{{ c.personality or "" }}</p>
+      <div class="card-body d-flex gap-3">
+        {% if c.thumbnail_filename %}
+        <img src="{{ url_for('characters.thumbnail', project_id=project.id, character_id=c.id) }}" alt="{{ c.name }}" class="rounded border flex-shrink-0" style="width: 64px; height: 64px; object-fit: cover; cursor: zoom-in;" data-bs-toggle="modal" data-bs-target="#thumbnailModal{{ c.id }}">
+
+        <div class="modal fade" id="thumbnailModal{{ c.id }}" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title">{{ c.name }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="閉じる"></button>
+              </div>
+              <div class="modal-body text-center">
+                <img src="{{ url_for('characters.thumbnail', project_id=project.id, character_id=c.id) }}" alt="{{ c.name }}" class="img-fluid rounded">
+              </div>
+            </div>
+          </div>
+        </div>
+        {% else %}
+        <div class="rounded border bg-light d-flex align-items-center justify-content-center text-muted flex-shrink-0" style="width: 64px; height: 64px; font-size: 0.7rem;">No Image</div>
+        {% endif %}
+        <div class="flex-grow-1">
+          <h5 class="card-title">{{ c.name }}</h5>
+          <p class="card-subtitle text-muted mb-2">{{ c.age or "年齢不明" }} / {{ c.gender or "性別不明" }}</p>
+          <p class="card-text small">{{ c.personality or "" }}</p>
+        </div>
       </div>
       <div class="card-footer bg-white border-top-0">
         <a href="{{ url_for('characters.edit', project_id=project.id, character_id=c.id) }}" class="btn btn-sm btn-outline-secondary">編集</a>

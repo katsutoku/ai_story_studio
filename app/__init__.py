@@ -13,6 +13,7 @@ def create_app(config_class: type = Config) -> Flask:
     # instance / データ保存用ディレクトリを用意
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
     Path(app.config["CHAPTER_MD_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(app.config["CHARACTER_THUMBNAIL_DIR"]).mkdir(parents=True, exist_ok=True)
 
     db.init_app(app)
     csrf.init_app(app)
@@ -24,6 +25,7 @@ def create_app(config_class: type = Config) -> Flask:
     from .routes.chapters import chapters_bp
     from .routes.foreshadowings import foreshadowings_bp
     from .routes.plot import plot_bp
+    from .routes.relationships import relationships_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(projects_bp)
@@ -32,6 +34,7 @@ def create_app(config_class: type = Config) -> Flask:
     app.register_blueprint(chapters_bp)
     app.register_blueprint(foreshadowings_bp)
     app.register_blueprint(plot_bp)
+    app.register_blueprint(relationships_bp)
 
     register_error_handlers(app)
 

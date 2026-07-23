@@ -1,5 +1,6 @@
 from flask_wtf import FlaskForm
-from wtforms import IntegerField, SelectField, StringField, TextAreaField
+from flask_wtf.file import FileAllowed, FileField, FileSize
+from wtforms import BooleanField, IntegerField, SelectField, StringField, TextAreaField
 from wtforms.validators import DataRequired, Length, NumberRange, Optional
 
 
@@ -47,6 +48,26 @@ class PlotGenerateForm(FlaskForm):
     )
 
 
+class RelationshipGenerateForm(FlaskForm):
+    """AI人物相関図生成フォーム"""
+
+    provider = SelectField(
+        "利用するAI",
+        choices=[
+            ("gemini", "Gemini（Google）"),
+            ("openai", "ChatGPT（OpenAI）"),
+            ("claude", "Claude（Anthropic）"),
+            ("ollama", "Ollama（ローカル実行）"),
+        ],
+        validators=[DataRequired()],
+    )
+    additional_notes = TextAreaField(
+        "追加指示（任意）",
+        validators=[Optional()],
+        description="例：主人公を中心に、恋愛関係と敵対関係を分けて考えてほしい、など",
+    )
+
+
 class CharacterForm(FlaskForm):
     """キャラクターフォーム"""
 
@@ -59,6 +80,14 @@ class CharacterForm(FlaskForm):
     appearance = TextAreaField("外見", validators=[Optional()])
     background = TextAreaField("背景設定", validators=[Optional()])
     notes = TextAreaField("備考", validators=[Optional()])
+    thumbnail = FileField(
+        "サムネイル画像（任意）",
+        validators=[
+            FileAllowed(["jpg", "jpeg", "png", "gif", "webp"], "画像ファイル（jpg/png/gif/webp）のみアップロードできます。"),
+            FileSize(max_size=5 * 1024 * 1024, message="ファイルサイズは5MB以下にしてください。"),
+        ],
+    )
+    remove_thumbnail = BooleanField("サムネイル画像を削除する")
 
 
 class CharacterGenerateForm(FlaskForm):

@@ -3,7 +3,18 @@
 {% block content %}
 <h1 class="h3 mb-4">{{ "キャラクターを編集" if is_edit else "新規キャラクターを登録" }}</h1>
 
-<form method="post" class="bg-white p-4 rounded shadow-sm" novalidate>
+{% if duplicate %}
+<div class="alert alert-warning">
+  <strong>同名のキャラクター「{{ duplicate.name }}」が既に登録されています。</strong>
+  {% if not is_edit %}
+  <div class="mt-2">
+    <a href="{{ url_for('characters.edit', project_id=project.id, character_id=duplicate.id) }}" class="btn btn-sm btn-outline-secondary">既存の内容を見る</a>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<form method="post" class="bg-white p-4 rounded shadow-sm" enctype="multipart/form-data" novalidate>
   {{ form.hidden_tag() }}
 
   <div class="row">
@@ -39,7 +50,64 @@
     {{ form.notes(class="form-control", rows=2) }}
   </div>
 
-  <button type="submit" class="btn btn-primary">保存</button>
+  <div class="mb-3">
+    {{ form.thumbnail.label(class="form-label") }}
+    <div class="mb-2">
+      <img id="thumbnailPreviewImg"
+           src="{{ url_for('characters.thumbnail', project_id=project.id, character_id=character.id) if is_edit and character.thumbnail_filename else '' }}"
+           alt="サムネイルプレビュー"
+           style="max-width: 120px; max-height: 120px; object-fit: cover; cursor: zoom-in; {% if not (is_edit and character.thumbnail_filename) %}display: none;{% endif %}"
+           class="rounded border"
+           data-bs-toggle="modal" data-bs-target="#thumbnailPreviewModal">
+    </div>
+    <div class="modal fade" id="thumbnailPreviewModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">サムネイルプレビュー</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="閉じる"></button>
+          </div>
+          <div class="modal-body text-center">
+            <img id="thumbnailPreviewModalImg" src="{{ url_for('characters.thumbnail', project_id=project.id, character_id=character.id) if is_edit and character.thumbnail_filename else '' }}" alt="サムネイルプレビュー" class="img-fluid rounded">
+          </div>
+        </div>
+      </div>
+    </div>
+    {{ form.thumbnail(class="form-control" + (" is-invalid" if form.thumbnail.errors else ""), id="thumbnailInput") }}
+    {% for error in form.thumbnail.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    <div class="form-text">jpg/png/gif/webp、5MBまで。ファイルを選ぶとすぐ上にプレビューが表示されます（保存するまでファイルはアップロードされません）。新しい画像をアップロードすると既存の画像は置き換わります。</div>
+    {% if is_edit and character.thumbnail_filename %}
+    <div class="form-check mt-2">
+      {{ form.remove_thumbnail(class="form-check-input") }}
+      {{ form.remove_thumbnail.label(class="form-check-label") }}
+    </div>
+    {% endif %}
+  </div>
+
+  <script>
+    document.getElementById("thumbnailInput").addEventListener("change", function (event) {
+      const file = event.target.files && event.target.files[0];
+      const previewImg = document.getElementById("thumbnailPreviewImg");
+      const modalImg = document.getElementById("thumbnailPreviewModalImg");
+      if (!file) {
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        previewImg.src = e.target.result;
+        previewImg.style.display = "inline-block";
+        modalImg.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  </script>
+
+  {% if duplicate and not is_edit %}
+  <button type="submit" name="action" value="update_existing" class="btn btn-warning">この内容で「{{ duplicate.name }}」を更新する</button>
+  <button type="submit" name="action" value="save" class="btn btn-outline-primary" disabled title="名前が重複しているため保存できません。名前を変更してください。">別のキャラクターとして保存</button>
+  {% else %}
+  <button type="submit" name="action" value="save" class="btn btn-primary">保存</button>
+  {% endif %}
   <a href="{{ url_for('characters.list_characters', project_id=project.id) }}" class="btn btn-outline-secondary">キャンセル</a>
 </form>
 {% endblock %}

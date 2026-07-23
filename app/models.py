@@ -15,6 +15,9 @@ class Project(db.Model):
     # 禁止事項・既知の事実（例：「主人公が犯人だと悟らせない」「被害者の死亡推定時刻は22時」など）
     # AI生成のたびに毎回プロンプトへ差し込まれる
     constraints = db.Column(db.Text, nullable=True)
+    # 人物相関図のキャッシュ（JSON文字列）。関連コンテンツの更新有無を判定するため生成日時も保持する。
+    relationship_diagram_json = db.Column(db.Text, nullable=True)
+    relationship_diagram_generated_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -54,6 +57,9 @@ class Character(db.Model):
     appearance = db.Column(db.Text, nullable=True)
     background = db.Column(db.Text, nullable=True)
     notes = db.Column(db.Text, nullable=True)
+
+    # サムネイル画像（サーバー側のディスクにファイルとして保存し、ファイル名のみDBに持たせる）
+    thumbnail_filename = db.Column(db.String(300), nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

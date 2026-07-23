@@ -23,6 +23,12 @@ class Config:
         os.environ.get("CHAPTER_MD_DIR", BASE_DIR / "data" / "chapters")
     )
 
+    # キャラクターサムネイル画像の保存先ディレクトリ（サーバー側のローカルディスク）
+    CHARACTER_THUMBNAIL_DIR = Path(
+        os.environ.get("CHARACTER_THUMBNAIL_DIR", BASE_DIR / "data" / "character_thumbnails")
+    )
+    CHARACTER_THUMBNAIL_MAX_SIZE_MB = int(os.environ.get("CHARACTER_THUMBNAIL_MAX_SIZE_MB", "5"))
+
     # AIシナリオ生成機能：利用するプロバイダと各種設定
     # PROVIDER: "openai" / "gemini" / "claude" / "ollama"
     DEFAULT_AI_PROVIDER = os.environ.get("DEFAULT_AI_PROVIDER", "gemini")
@@ -39,5 +45,12 @@ class Config:
     # Ollama（ローカル実行）。APIキーは不要、エンドポイントのみ指定する。
     OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1")
+
+    # 1回のAI呼び出しで生成できる最大トークン数（4プロバイダ共通）。
+    # 章の分量を長くしたい場合はこの値を大きくする。
+    # 目安：日本語は1トークン≒1〜2文字程度。20000トークンで日本語1万〜2万字程度。
+    # モデル・プロバイダ側の上限を超える値を指定した場合はエラーになるので、
+    # 大きくしすぎた場合は利用するモデルの仕様を確認すること。
+    AI_MAX_OUTPUT_TOKENS = int(os.environ.get("AI_MAX_OUTPUT_TOKENS", "8192"))
 
     WTF_CSRF_ENABLED = True
