@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}トリックをAIで部分修正 - {{ case.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.list_cases', project_id=project.id) }}">事件管理</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}">{{ case.title }}</a></li>
+    <li class="breadcrumb-item active">トリックをAIで部分修正</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-1">トリック（真相）をAIで部分修正</h1>
+<p class="text-muted">
+  今のトリックを全部書き直すのではなく、指示した変更点だけをAIに反映させます。
+  <strong>登場人物の名前・人数・役割構成（配役）は変更されません。</strong>
+  配役自体を変えたい場合は、配役画面から行ってください。
+</p>
+
+<form method="post" class="bg-white p-4 rounded shadow-sm ai-generate-form" novalidate>
+  {{ form.hidden_tag() }}
+
+  <div class="mb-3">
+    {{ form.revision_instructions.label(class="form-label") }}
+    {{ form.revision_instructions(class="form-control" + (" is-invalid" if form.revision_instructions.errors else ""), rows=5) }}
+    {% for error in form.revision_instructions.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    {% if form.revision_instructions.description %}<div class="form-text">{{ form.revision_instructions.description }}</div>{% endif %}
+  </div>
+
+  <div class="mb-3">
+    {{ form.provider.label(class="form-label") }}
+    {{ form.provider(class="form-select") }}
+  </div>
+
+  <button type="submit" class="btn btn-success" data-loading-text="AIがトリックを修正しています。しばらくお待ちください…">修正する</button>
+  <a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

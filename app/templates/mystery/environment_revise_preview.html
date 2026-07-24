@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}環境・小道具修正結果の確認 - {{ case.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.list_cases', project_id=project.id) }}">事件管理</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}">{{ case.title }}</a></li>
+    <li class="breadcrumb-item active">環境・小道具修正結果の確認</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">修正結果の確認</h1>
+<p class="text-muted">まだ保存されていません。内容を確認し、問題なければ保存してください。</p>
+
+{% if warnings %}
+<div class="alert alert-warning">
+  {% for w in warnings %}
+  <p class="mb-0">{{ w }}</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card mb-3">
+  <div class="card-header">タイムライン（修正後）</div>
+  <ul class="list-group list-group-flush">
+    {% for t in environment.get("timeline", []) %}
+    <li class="list-group-item">
+      <strong>{{ t.get("time", "") }} / {{ t.get("location", "") }}</strong>：{{ t.get("event", "") }}
+      {% if t.get("characters") %}<div class="small text-muted">登場人物：{{ t.get("characters", []) | join("、") }}</div>{% endif %}
+    </li>
+    {% else %}
+    <li class="list-group-item text-muted">なし</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">場所（修正後）</div>
+  <ul class="list-group list-group-flush">
+    {% for l in environment.get("location", []) %}
+    <li class="list-group-item"><strong>{{ l.get("name", "") }}</strong>：{{ l.get("description", "") }}</li>
+    {% else %}
+    <li class="list-group-item text-muted">なし</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">天候（修正後）</div>
+  <div class="card-body"><p class="mb-0">{{ environment.get("weather", "") }}</p></div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">小道具（修正後）</div>
+  <ul class="list-group list-group-flush">
+    {% for item in environment.get("items", []) %}
+    <li class="list-group-item">
+      <strong>{{ item.get("name", "") }}</strong>：{{ item.get("description", "") }}
+      {% if item.get("location_found") %}<div class="small text-muted">発見場所：{{ item.get("location_found", "") }}</div>{% endif %}
+    </li>
+    {% else %}
+    <li class="list-group-item text-muted">なし</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<form method="post" action="{{ url_for('mystery.environment_revise_confirm', project_id=project.id, case_id=case.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="generated_json" value="{{ generated_json }}">
+  <button type="submit" class="btn btn-primary">この内容で保存する</button>
+  <a href="{{ url_for('mystery.environment_revise', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">やり直す</a>
+  <a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">破棄してキャンセル</a>
+</form>
+{% endblock %}

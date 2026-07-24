@@ -5,18 +5,25 @@ from flask import Blueprint, abort, current_app, flash, redirect, render_templat
 
 from ..ai_service import (
     AIGenerationError,
+    apply_cast_replacements_to_trick,
     auto_assign_cast,
     generate_characters,
     generate_environment,
     generate_evaluation,
     generate_trick,
+    revise_environment,
+    revise_trick,
+    warn_unexpected_names,
+    _resolve_trick_json_placeholders,
 )
 from ..extensions import db
 from ..forms import (
     MysteryCaseForm,
+    MysteryEnvironmentReviseForm,
     MysteryEvaluateForm,
     MysteryGenerateWithProviderForm,
     MysteryMobGenerateForm,
+    MysteryTrickReviseForm,
 )
 from ..models import Character, Chapter, MysteryCase, Project
 
@@ -25,6 +32,18 @@ mystery_bp = Blueprint(
 )
 
 ROLE_TYPE_CHOICES = ["detective", "victim", "culprit", "suspect", "witness", "accomplice", "other"]
+
+# 固定配役の希望欄で、英単語の代わりに日本語ラベルでも指定できるようにするための対応表
+# （内部的に使うrole_typeの値は英語のまま変更しない）
+ROLE_LABEL_TO_KEY = {
+    "探偵": "detective",
+    "被害者": "victim",
+    "犯人": "culprit",
+    "容疑者": "suspect",
+    "目撃者": "witness",
+    "共犯者": "accomplice",
+    "その他": "other",
+}
 
 
 def _get_project_or_404(project_id):
@@ -57,14 +76,19 @@ def _load_json_dict(text):
     return data if isinstance(data, dict) else {}
 
 
-def _recompute_cast_status(case) -> list:
+def _recompute_cast_status(case, project) -> list:
     """required_cast_jsonを読み込み、全役割に配役済みかどうかでcast_statusを更新する。
+
+    全役割の配役が完了したタイミングで、trick_json内に残っている可能性がある
+    【CAST:role_key】トークンを実名に解決する（_resolve_trick_json_placeholders。
+    冪等なので、既に解決済み・トークンがそもそもない場合は何もしない）。
 
     戻り値はパース済みのrequired_castリスト（呼び出し側での再利用のため）。
     """
     required_cast = _load_json_list(case.required_cast_json)
     if required_cast and all(entry.get("assigned_character_id") for entry in required_cast):
         case.cast_status = MysteryCase.CAST_STATUS_COMPLETE
+        _resolve_trick_json_placeholders(case, project)
     else:
         case.cast_status = MysteryCase.CAST_STATUS_PENDING
     return required_cast
@@ -93,6 +117,7 @@ def _parse_fixed_role_hints(project, text):
         separator = ":" if ":" in line else "："
         role, _, name = line.partition(separator)
         role = role.strip().lower()
+        role = ROLE_LABEL_TO_KEY.get(role, role)
         name = name.strip()
         character = character_by_name.get(name.lower())
         if role not in ROLE_TYPE_CHOICES or character is None:
@@ -354,7 +379,7 @@ def generate_trick_confirm(project_id, case_id):
     )
     case.required_cast_json = json.dumps(required_cast, ensure_ascii=False)
     case.status = MysteryCase.STATUS_TRICK_READY
-    _recompute_cast_status(case)
+    _recompute_cast_status(case, project)
     db.session.commit()
 
     flash("トリックを保存しました。続けて配役を行ってください。", "success")
@@ -407,9 +432,32 @@ def auto_generate(project_id, case_id):
             )
             return render_template("mystery/auto_generate.html", form=form, project=project, case=case)
 
+        # トリック本文中の【CAST:role_key】トークンを、配役結果（既存キャラ・新規モブどちらも
+        # resolved_castの時点で実名が確定している）で置換する。DB保存前のこの時点で解決しておく
+        # ことで、環境生成プロンプトにも、確定保存されるtrick_jsonにも創作名が残らないようにする。
+        cast_name_replacements = {
+            f"【CAST:{c['role_key']}】": c["character_name"]
+            for c in resolved_cast
+            if c.get("role_key") and c.get("character_name")
+        }
+        apply_cast_replacements_to_trick(trick_data, cast_name_replacements)
+        trick_json_text = json.dumps(
+            {
+                "trick_type": trick_data.get("trick_type", ""),
+                "true_mechanism": trick_data.get("true_mechanism", ""),
+                "misdirection": trick_data.get("misdirection", ""),
+                "contradiction_set": trick_data.get("contradiction_set", {}),
+            },
+            ensure_ascii=False,
+        )
+
         try:
             environment_data = generate_environment(
-                case, project, provider=provider, resolved_cast=resolved_cast
+                case,
+                project,
+                provider=provider,
+                resolved_cast=resolved_cast,
+                trick_json_text=trick_json_text,
             )
         except AIGenerationError as exc:
             flash(
@@ -540,6 +588,81 @@ def auto_generate_confirm(project_id, case_id):
     return redirect(url_for("mystery.detail", project_id=project.id, case_id=case.id))
 
 
+@mystery_bp.route("/<int:case_id>/trick/revise", methods=["GET", "POST"])
+def trick_revise(project_id, case_id):
+    """確定済みのトリック（真相）に対して、指示した変更点だけをAIに反映させる（部分修正）。
+
+    配役が完了していない（trick_json内に【CAST:role_key】トークンが残っている）場合は対象外。
+    """
+    project = _get_project_or_404(project_id)
+    case = _get_case_or_404(project_id, case_id)
+
+    if not case.trick_json:
+        flash("先にトリックを生成・確定してください。", "danger")
+        return redirect(url_for("mystery.generate_trick_view", project_id=project.id, case_id=case.id))
+    if "【CAST:" in case.trick_json:
+        flash(
+            "配役が完了していないため、部分修正はできません。先に配役を完了するか、"
+            "トリックを再生成してください。",
+            "danger",
+        )
+        return redirect(url_for("mystery.cast", project_id=project.id, case_id=case.id))
+
+    form = MysteryTrickReviseForm()
+    if not form.is_submitted():
+        form.provider.data = current_app.config.get("DEFAULT_AI_PROVIDER", "gemini")
+
+    if form.validate_on_submit():
+        try:
+            revised_trick = revise_trick(
+                case, project, revision_instructions=form.revision_instructions.data, provider=form.provider.data
+            )
+        except AIGenerationError as exc:
+            flash(f"AIによる修正に失敗しました: {exc}", "danger")
+            return render_template("mystery/trick_revise.html", form=form, project=project, case=case)
+
+        warnings = warn_unexpected_names(revised_trick, case, project)
+        generated_json = json.dumps(revised_trick, ensure_ascii=False)
+        return render_template(
+            "mystery/trick_revise_preview.html",
+            project=project,
+            case=case,
+            trick=revised_trick,
+            warnings=warnings,
+            generated_json=generated_json,
+        )
+
+    return render_template("mystery/trick_revise.html", form=form, project=project, case=case)
+
+
+@mystery_bp.route("/<int:case_id>/trick/revise/confirm", methods=["POST"])
+def trick_revise_confirm(project_id, case_id):
+    """修正結果プレビューで確認されたトリックで、trick_jsonを上書きする"""
+    project = _get_project_or_404(project_id)
+    case = _get_case_or_404(project_id, case_id)
+
+    generated_json = request.form.get("generated_json", "")
+    try:
+        revised_trick = json.loads(generated_json)
+    except (json.JSONDecodeError, TypeError):
+        flash("修正結果の読み込みに失敗しました。もう一度修正し直してください。", "danger")
+        return redirect(url_for("mystery.trick_revise", project_id=project.id, case_id=case.id))
+
+    case.trick_json = json.dumps(
+        {
+            "trick_type": revised_trick.get("trick_type", ""),
+            "true_mechanism": revised_trick.get("true_mechanism", ""),
+            "misdirection": revised_trick.get("misdirection", ""),
+            "contradiction_set": revised_trick.get("contradiction_set", {}),
+        },
+        ensure_ascii=False,
+    )
+    db.session.commit()
+
+    flash("修正後のトリックを保存しました。", "success")
+    return redirect(url_for("mystery.detail", project_id=project.id, case_id=case.id))
+
+
 @mystery_bp.route("/<int:case_id>/cast")
 def cast(project_id, case_id):
     """Phase2.5：抽象配役表の各役割に、既存キャラクターまたは新規モブキャラを割り当てる画面"""
@@ -600,7 +723,7 @@ def cast_assign(project_id, case_id):
         target["assigned_character_id"] = character_id
 
     case.required_cast_json = json.dumps(required_cast, ensure_ascii=False)
-    _recompute_cast_status(case)
+    _recompute_cast_status(case, project)
     db.session.commit()
 
     if case.cast_status == MysteryCase.CAST_STATUS_COMPLETE:
@@ -721,7 +844,7 @@ def cast_generate_mob_confirm(project_id, case_id, role_key):
     if target is not None:
         target["assigned_character_id"] = character.id
     case.required_cast_json = json.dumps(required_cast, ensure_ascii=False)
-    _recompute_cast_status(case)
+    _recompute_cast_status(case, project)
     db.session.commit()
 
     flash(f"事件専用のモブキャラ「{character.name}」を登録し、役割に割り当てました。", "success")
@@ -809,7 +932,7 @@ def generate_environment_confirm(project_id, case_id):
                 }
             )
         case.required_cast_json = json.dumps(required_cast, ensure_ascii=False)
-        _recompute_cast_status(case)
+        _recompute_cast_status(case, project)
         db.session.commit()
         flash(
             "環境・小道具を生成しましたが、追加で必要な役割が見つかりました。"
@@ -821,6 +944,71 @@ def generate_environment_confirm(project_id, case_id):
     case.status = MysteryCase.STATUS_ENVIRONMENT_READY
     db.session.commit()
     flash("環境・小道具を保存しました。", "success")
+    return redirect(url_for("mystery.detail", project_id=project.id, case_id=case.id))
+
+
+@mystery_bp.route("/<int:case_id>/environment/revise", methods=["GET", "POST"])
+def environment_revise(project_id, case_id):
+    """確定済みの環境・小道具データに対して、指示した変更点だけをAIに反映させる（部分修正）"""
+    project = _get_project_or_404(project_id)
+    case = _get_case_or_404(project_id, case_id)
+
+    if not case.environment_json:
+        flash("先に環境・小道具を生成・確定してください。", "danger")
+        return redirect(url_for("mystery.generate_environment_view", project_id=project.id, case_id=case.id))
+
+    form = MysteryEnvironmentReviseForm()
+    if not form.is_submitted():
+        form.provider.data = current_app.config.get("DEFAULT_AI_PROVIDER", "gemini")
+
+    if form.validate_on_submit():
+        try:
+            revised_environment = revise_environment(
+                case, project, revision_instructions=form.revision_instructions.data, provider=form.provider.data
+            )
+        except AIGenerationError as exc:
+            flash(f"AIによる修正に失敗しました: {exc}", "danger")
+            return render_template("mystery/environment_revise.html", form=form, project=project, case=case)
+
+        warnings = warn_unexpected_names(revised_environment, case, project)
+        generated_json = json.dumps(revised_environment, ensure_ascii=False)
+        return render_template(
+            "mystery/environment_revise_preview.html",
+            project=project,
+            case=case,
+            environment=revised_environment,
+            warnings=warnings,
+            generated_json=generated_json,
+        )
+
+    return render_template("mystery/environment_revise.html", form=form, project=project, case=case)
+
+
+@mystery_bp.route("/<int:case_id>/environment/revise/confirm", methods=["POST"])
+def environment_revise_confirm(project_id, case_id):
+    """修正結果プレビューで確認された環境・小道具データで、environment_jsonを上書きする"""
+    project = _get_project_or_404(project_id)
+    case = _get_case_or_404(project_id, case_id)
+
+    generated_json = request.form.get("generated_json", "")
+    try:
+        revised_environment = json.loads(generated_json)
+    except (json.JSONDecodeError, TypeError):
+        flash("修正結果の読み込みに失敗しました。もう一度修正し直してください。", "danger")
+        return redirect(url_for("mystery.environment_revise", project_id=project.id, case_id=case.id))
+
+    case.environment_json = json.dumps(
+        {
+            "timeline": revised_environment.get("timeline", []),
+            "location": revised_environment.get("location", []),
+            "weather": revised_environment.get("weather", ""),
+            "items": revised_environment.get("items", []),
+        },
+        ensure_ascii=False,
+    )
+    db.session.commit()
+
+    flash("修正後の環境・小道具を保存しました。", "success")
     return redirect(url_for("mystery.detail", project_id=project.id, case_id=case.id))
 
 

@@ -929,7 +929,12 @@ def build_trick_prompt(case: MysteryCase, project: Project) -> str:
         "}\n"
         "固定配役の希望で指定された役割は required_cast にも含め、role_key を対応させること。"
         "それ以外の役割は、トリックの成立に本当に必要な人数だけを過不足なく設計すること"
-        "（矛盾セットの成立に不要な役割を水増ししない）。"
+        "（矛盾セットの成立に不要な役割を水増ししない）。\n"
+        "固定配役として実名を渡した役割は、その実名をそのまま本文中で使うこと。"
+        "それ以外の役割（まだ配役されていない役割）については、本文中（true_mechanism / "
+        "misdirection / contradiction_set内の全テキスト）で絶対に名前を創作しないこと。"
+        "代わりに必ず「【CAST:role_key】」の形式のトークンで言及すること"
+        "（例：探偵役が witness_1 を問い詰める場面なら「【CAST:witness_1】は…」と書く）。"
     )
     return "\n".join(lines)
 
@@ -1076,14 +1081,23 @@ def _resolve_cast_list(case: MysteryCase, project: Project) -> list[dict]:
     return resolved
 
 
-def build_environment_prompt(case: MysteryCase, project: Project, resolved_cast: list[dict]) -> str:
+def build_environment_prompt(
+    case: MysteryCase, project: Project, resolved_cast: list[dict], trick_json_text: str | None = None
+) -> str:
     """配役済み（Phase 2.5完了後）の実名一覧をもとに、矛盾のない現場データ（タイムライン・
     場所・天候・小道具）を実名でAIに生成させるプロンプトを組み立てる（Phase 3）。
 
     trick_json（真相を含む）はここで初めてAIに渡すが、生成対象はあくまで客観的な現場データであり、
     真相そのものを本編の地の文プロンプトへそのまま横流ししないことは呼び出し側の責務
     （app/routes/mystery.py・build_prompt()側で担保する。詳細はCLAUDE.md「8.」「9.」）。
+
+    trick_json_text: 通常はNoneのまま呼び出し、case.trick_json（DB保存済み）を参照する。
+        お任せモードのように、トリックがまだDBに保存されていない（生成直後で確定前）場合は、
+        呼び出し側で生成済みのtrick_json文字列を直接渡す（渡さないと、お任せモードの環境生成が
+        真相を一切参照できないまま行われてしまう）。
     """
+    if trick_json_text is None:
+        trick_json_text = case.trick_json or ""
     cast_lines = [
         f"- {c['role_key']}（{c['role_type']}）: {c['character_name']} / {c['public_trait'] or ''}"
         for c in resolved_cast
@@ -1103,7 +1117,7 @@ def build_environment_prompt(case: MysteryCase, project: Project, resolved_cast:
 
     lines.append(
         "\n# 真相（トリック。矛盾なく現場データに反映すること。プレイヤーには開示しない前提で"
-        f"設計してよい）\n{case.trick_json or ''}"
+        f"設計してよい）\n{trick_json_text}"
     )
     lines.append(f"\n# 配役済みの登場人物一覧（この実名を使って描写すること）\n{cast_text}")
     lines.append(
@@ -1124,21 +1138,25 @@ def build_environment_prompt(case: MysteryCase, project: Project, resolved_cast:
 
 
 def generate_environment(
-    case: MysteryCase, project: Project, provider: str = "", resolved_cast: list[dict] | None = None
+    case: MysteryCase,
+    project: Project,
+    provider: str = "",
+    resolved_cast: list[dict] | None = None,
+    trick_json_text: str | None = None,
 ) -> dict:
     """配役済みの実名一覧をもとに、現場データ（timeline/location/weather/items）を生成する（Phase 3）。
 
     追加の役割が必要と判明した場合はadditional_required_castに含まれる
     （ルート側でrequired_cast_jsonへの追記・cast_statusの差し戻しに使う）。
 
-    resolved_cast: 通常はNoneのまま呼び出し、case.required_cast_json（DB保存済み）を
-        _resolve_cast_list()で解決する。お任せモード（auto_assign_cast）のように、
-        配役結果がまだDBに保存されていない（Character未コミット）場合は、呼び出し側で
-        解決済みのcast一覧を直接渡す。
+    resolved_cast / trick_json_text: 通常はNoneのまま呼び出し、それぞれcase.required_cast_json /
+        case.trick_json（いずれもDB保存済み）を参照する。お任せモード（auto_assign_cast）のように、
+        トリック・配役結果がまだDBに保存されていない場合は、呼び出し側で解決済みのcast一覧・
+        trick_json文字列を直接渡す。
     """
     if resolved_cast is None:
         resolved_cast = _resolve_cast_list(case, project)
-    prompt = build_environment_prompt(case, project, resolved_cast)
+    prompt = build_environment_prompt(case, project, resolved_cast, trick_json_text=trick_json_text)
     raw_text = _dispatch(prompt, provider)
     data = _parse_json_object(raw_text)
 
@@ -1203,6 +1221,122 @@ def generate_evaluation(
     return data
 
 
+def build_trick_revision_prompt(case: MysteryCase, project: Project, revision_instructions: str) -> str:
+    """確定済みのtrick_jsonを、指示された変更点だけ反映する形で書き換えさせるプロンプトを
+    組み立てる（章本文の部分修正と同じ3段構成：修正指示入力→プレビュー→確認保存、のPhase2版）。
+
+    配役（誰がどの役割を演じるか）はこの機能では変更しない。名前・人数・役割構成を変更しない
+    ことを厳守事項として明示することで、9.1で修正した「本文中の名前とrequired_cast_jsonの
+    食い違い」が部分修正経由で再発しないようにする。
+    """
+    lines = [
+        "以下は、あるミステリーゲームの事件について、既に確定しているトリック（真相）データです。",
+        "この内容に対して、下記の「修正指示」で指定された変更点だけを反映するように書き換えてください。",
+        "",
+        "# 厳守事項",
+        "1. 登場人物の名前・人数・役割構成（誰が探偵役／目撃者役か）は絶対に変更しないこと。"
+        "配役自体を変えたいという意図の指示であっても、名前は変えずそのまま維持すること"
+        "（配役の変更は別の画面で行うため、この修正では扱わない）。",
+        "2. contradiction_set（証言・客観的事実・キー証拠）の整合性が崩れないよう、"
+        "変更箇所に連動する他の項目も必要な範囲で合わせて修正すること。",
+        "3. JSON構造（キー名）は変更しないこと。",
+        "",
+        f"# 修正対象の事件データ\n{case.trick_json or ''}",
+        f"\n# 修正指示\n{revision_instructions}",
+        "\n修正後のJSON全体のみを出力してください（前置き・説明・Markdownのコードフェンスは禁止）。",
+    ]
+    return "\n".join(lines)
+
+
+def revise_trick(
+    case: MysteryCase, project: Project, revision_instructions: str, provider: str = ""
+) -> dict:
+    """確定済みのtrick_jsonを、指示された変更点だけ反映する形でAIに書き換えさせる（未保存）。"""
+    prompt = build_trick_revision_prompt(case, project, revision_instructions)
+    raw_text = _dispatch(prompt, provider)
+    data = _parse_json_object(raw_text)
+    if not isinstance(data.get("contradiction_set"), dict):
+        data["contradiction_set"] = {}
+    return data
+
+
+def build_environment_revision_prompt(
+    case: MysteryCase, project: Project, revision_instructions: str
+) -> str:
+    """確定済みのenvironment_jsonを、指示された変更点だけ反映する形で書き換えさせるプロンプトを
+    組み立てる（Phase3版）。配役済みの実名一覧（登場人物の構成）は変更しないことを厳守事項として
+    明示する（trick_revisionと同じ理由）。
+    """
+    resolved_cast = _resolve_cast_list(case, project)
+    cast_lines = [f"- {c['role_key']}（{c['role_type']}）: {c['character_name']}" for c in resolved_cast]
+    cast_text = "\n".join(cast_lines) if cast_lines else "（配役情報なし）"
+
+    lines = [
+        "以下は、あるミステリーゲームの事件について、既に確定している現場データ"
+        "（タイムライン・場所・天候・小道具）です。",
+        "この内容に対して、下記の「修正指示」で指定された変更点だけを反映するように書き換えてください。",
+        "",
+        "# 厳守事項",
+        "1. 登場人物の構成（誰が登場するか）は変更しないこと。以下の配役済みの実名一覧に"
+        f"含まれない新しい人物を登場させないこと。\n{cast_text}",
+        "2. 確定済みの真相（トリック）と矛盾しないよう、変更箇所に連動する他の項目も"
+        "必要な範囲で合わせて修正すること。",
+        "3. JSON構造（キー名）は変更しないこと。",
+        "",
+        f"# 修正対象の現場データ\n{case.environment_json or ''}",
+        f"\n# 修正指示\n{revision_instructions}",
+        "\n修正後のJSON全体のみを出力してください（前置き・説明・Markdownのコードフェンスは禁止）。",
+    ]
+    return "\n".join(lines)
+
+
+def revise_environment(
+    case: MysteryCase, project: Project, revision_instructions: str, provider: str = ""
+) -> dict:
+    """確定済みのenvironment_jsonを、指示された変更点だけ反映する形でAIに書き換えさせる（未保存）。"""
+    prompt = build_environment_revision_prompt(case, project, revision_instructions)
+    raw_text = _dispatch(prompt, provider)
+    data = _parse_json_object(raw_text)
+    for key in ("timeline", "location", "items"):
+        if not isinstance(data.get(key), list):
+            data[key] = []
+    data.setdefault("weather", "")
+    return data
+
+
+def warn_unexpected_names(revised_data: dict, case: MysteryCase, project: Project) -> list[str]:
+    """AIによる部分修正結果（トリック・環境どちらにも使える汎用版）のプレビュー用：
+    修正後の内容に配役済みキャラクター名が1つも見当たらない場合、意図せず新しい人物名を
+    作ってしまっていないか確認を促す警告を返す。自動ブロックはせず、確認を促すに留める
+    （章の部分修正と同じく、最終判断は利用者に委ねる）。
+    """
+    known_names = {c.name for c in project.characters} | {c.name for c in case.mob_characters}
+    if not known_names:
+        return []
+
+    texts: list[str] = []
+
+    def _collect(value):
+        if isinstance(value, str):
+            texts.append(value)
+        elif isinstance(value, dict):
+            for v in value.values():
+                _collect(v)
+        elif isinstance(value, list):
+            for v in value:
+                _collect(v)
+
+    _collect(revised_data)
+    combined = " ".join(texts)
+
+    if not any(name in combined for name in known_names):
+        return [
+            "修正後の内容に、配役済みのキャラクター名が見当たりません。"
+            "意図せず新しい人物名を作ってしまっていないか確認してください。"
+        ]
+    return []
+
+
 def _dispatch(prompt: str, provider: str = "") -> str:
     """指定（または既定）のプロバイダにプロンプトを送信し、生テキストを返す共通処理。"""
     provider = (provider or current_app.config.get("DEFAULT_AI_PROVIDER", "gemini")).lower()
@@ -1264,6 +1398,74 @@ def _load_json_dict_or_none(text: str):
     except (json.JSONDecodeError, TypeError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def _load_json_list_or_none(text: str):
+    """_load_json_dict_or_noneのリスト版（required_cast_jsonの読み込み用）。"""
+    import json
+
+    if not text:
+        return None
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return data if isinstance(data, list) else None
+
+
+def apply_cast_replacements_to_trick(trick: dict, replacements: dict) -> dict:
+    """trick辞書（true_mechanism / misdirection / contradiction_set）内の
+    「【CAST:role_key】」トークンを、replacements（トークン→実名）で置換する（インプレース更新）。
+
+    お任せモード（configの時点ではまだDB未保存）と、_resolve_trick_json_placeholders
+    （配役完了後、DB保存済みのtrick_jsonを書き換える版）の両方から共用する低レベル処理。
+    """
+
+    def _replace(text):
+        if not isinstance(text, str):
+            return text
+        for token, name in replacements.items():
+            text = text.replace(token, name)
+        return text
+
+    trick["true_mechanism"] = _replace(trick.get("true_mechanism"))
+    trick["misdirection"] = _replace(trick.get("misdirection"))
+    cs = trick.get("contradiction_set")
+    if isinstance(cs, dict):
+        for key in ("witness_statement", "evidence_fact", "key_evidence"):
+            cs[key] = _replace(cs.get(key))
+    return trick
+
+
+def _resolve_trick_json_placeholders(case: MysteryCase, project: Project) -> None:
+    """配役完了時に、DB保存済みのcase.trick_json内の【CAST:role_key】トークンを、
+    required_cast_jsonのassigned_character_idから解決した実際のキャラクター名に置換する。
+
+    冪等（トークンが残っていなければ何もしない）なので、呼び出し元は毎回安全に呼んでよい。
+    """
+    import json
+
+    if not case.trick_json:
+        return
+    trick = _load_json_dict_or_none(case.trick_json)
+    if not trick:
+        return
+
+    character_lookup = {c.id: c for c in project.characters}
+    character_lookup.update({c.id: c for c in case.mob_characters})
+    required_cast = _load_json_list_or_none(case.required_cast_json) or []
+
+    replacements = {}
+    for entry in required_cast:
+        if not isinstance(entry, dict):
+            continue
+        role_key = entry.get("role_key")
+        character = character_lookup.get(entry.get("assigned_character_id"))
+        if role_key and character:
+            replacements[f"【CAST:{role_key}】"] = character.name
+
+    apply_cast_replacements_to_trick(trick, replacements)
+    case.trick_json = json.dumps(trick, ensure_ascii=False)
 
 
 def _parse_json_object(text: str) -> dict:

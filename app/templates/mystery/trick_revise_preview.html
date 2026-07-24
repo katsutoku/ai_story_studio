@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}トリック修正結果の確認 - {{ case.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.list_cases', project_id=project.id) }}">事件管理</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}">{{ case.title }}</a></li>
+    <li class="breadcrumb-item active">トリック修正結果の確認</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">修正結果の確認</h1>
+<p class="text-muted">まだ保存されていません（ネタバレのため、この画面の内容はそのまま常時表示にしています）。</p>
+
+{% if warnings %}
+<div class="alert alert-warning">
+  {% for w in warnings %}
+  <p class="mb-0">{{ w }}</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card mb-3">
+  <div class="card-header">トリックタイプ</div>
+  <div class="card-body"><p class="mb-0">{{ trick.get("trick_type", "") }}</p></div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">真相の仕組み（修正後）</div>
+  <div class="card-body"><p class="mb-0" style="white-space: pre-wrap;">{{ trick.get("true_mechanism", "") }}</p></div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">ミスディレクション（修正後）</div>
+  <div class="card-body"><p class="mb-0" style="white-space: pre-wrap;">{{ trick.get("misdirection", "") }}</p></div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">矛盾セット（修正後）</div>
+  <div class="card-body">
+    {% set cs = trick.get("contradiction_set", {}) %}
+    <p class="mb-1"><strong>容疑者の証言：</strong>{{ cs.get("witness_statement", "") }}</p>
+    <p class="mb-1"><strong>客観的事実：</strong>{{ cs.get("evidence_fact", "") }}</p>
+    <p class="mb-0"><strong>決め手となる証拠：</strong>{{ cs.get("key_evidence", "") }}</p>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('mystery.trick_revise_confirm', project_id=project.id, case_id=case.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="generated_json" value="{{ generated_json }}">
+  <button type="submit" class="btn btn-primary">この内容で保存する</button>
+  <a href="{{ url_for('mystery.trick_revise', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">やり直す</a>
+  <a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">破棄してキャンセル</a>
+</form>
+{% endblock %}

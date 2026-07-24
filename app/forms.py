@@ -304,8 +304,9 @@ class MysteryCaseForm(FlaskForm):
         validators=[Optional()],
         description=(
             "強い希望がある役割だけ「役割: キャラクター名」の形式で1行ずつ入力してください"
-            "（例：detective: 名探偵コナン）。役割はdetective/victim/culprit/suspect/witness/"
-            "accomplice/otherのいずれか。指定しない役割はすべてAIが自由に設計します。"
+            "（例：探偵: 名探偵コナン）。役割は探偵/被害者/犯人/容疑者/目撃者/共犯者/その他"
+            "（英語で detective/victim/culprit/suspect/witness/accomplice/other と入力することも"
+            "できます）。指定しない役割はすべてAIが自由に設計します。"
             "キャラクター名はこの作品に登録済みのものと一致させてください。"
         ),
     )
@@ -360,6 +361,49 @@ class MysteryEvaluateForm(FlaskForm):
     chapter_id = SelectField("対象の章（検証対象が「章本文」の場合）", coerce=int, validators=[Optional()])
     manual_text = TextAreaField(
         "本文/尋問ログを直接貼り付け（検証対象が「直接貼り付け」の場合）", validators=[Optional()]
+    )
+    provider = SelectField(
+        "利用するAI",
+        choices=[
+            ("gemini", "Gemini（Google）"),
+            ("openai", "ChatGPT（OpenAI）"),
+            ("claude", "Claude（Anthropic）"),
+            ("ollama", "Ollama（ローカル実行）"),
+        ],
+        validators=[DataRequired()],
+    )
+
+
+class MysteryTrickReviseForm(FlaskForm):
+    """確定済みのトリック（真相）をAIで部分修正するフォーム（ChapterReviseFormと同型）"""
+
+    revision_instructions = TextAreaField(
+        "修正指示",
+        validators=[DataRequired(message="修正指示は必須です。")],
+        description=(
+            "例：凶器をナイフから毒物に変更してください。ミスディレクションをもっと強めてください。"
+            "配役（誰がどの役割か）は変更されません。"
+        ),
+    )
+    provider = SelectField(
+        "利用するAI",
+        choices=[
+            ("gemini", "Gemini（Google）"),
+            ("openai", "ChatGPT（OpenAI）"),
+            ("claude", "Claude（Anthropic）"),
+            ("ollama", "Ollama（ローカル実行）"),
+        ],
+        validators=[DataRequired()],
+    )
+
+
+class MysteryEnvironmentReviseForm(FlaskForm):
+    """確定済みの環境・小道具データをAIで部分修正するフォーム（ChapterReviseFormと同型）"""
+
+    revision_instructions = TextAreaField(
+        "修正指示",
+        validators=[DataRequired(message="修正指示は必須です。")],
+        description="例：天候を雨から吹雪に変更してください。小道具に懐中電灯を追加してください。",
     )
     provider = SelectField(
         "利用するAI",

@@ -84,6 +84,9 @@
       <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleSpoiler()">
         <span id="spoilerToggleLabel">ネタバレを表示する</span>
       </button>
+      {% if case.trick_json and case.cast_status == "complete" %}
+      <a href="{{ url_for('mystery.trick_revise', project_id=project.id, case_id=case.id) }}" class="btn btn-sm btn-outline-primary">AIで部分修正</a>
+      {% endif %}
       <a href="{{ url_for('mystery.generate_trick_view', project_id=project.id, case_id=case.id) }}" class="btn btn-sm btn-outline-success">
         {{ "AIで再生成" if case.trick_json else "AIで生成する" }}
       </a>
@@ -131,9 +134,14 @@
 <div class="card mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span>Phase3：環境・小道具</span>
-    <a href="{{ url_for('mystery.generate_environment_view', project_id=project.id, case_id=case.id) }}" class="btn btn-sm btn-outline-success" {% if case.cast_status != 'complete' %}aria-disabled="true" tabindex="-1" onclick="return false;"{% endif %}>
-      {{ "AIで再生成" if case.environment_json else "AIで生成する" }}
-    </a>
+    <div>
+      {% if case.environment_json %}
+      <a href="{{ url_for('mystery.environment_revise', project_id=project.id, case_id=case.id) }}" class="btn btn-sm btn-outline-primary">AIで部分修正</a>
+      {% endif %}
+      <a href="{{ url_for('mystery.generate_environment_view', project_id=project.id, case_id=case.id) }}" class="btn btn-sm btn-outline-success" {% if case.cast_status != 'complete' %}aria-disabled="true" tabindex="-1" onclick="return false;"{% endif %}>
+        {{ "AIで再生成" if case.environment_json else "AIで生成する" }}
+      </a>
+    </div>
   </div>
   <div class="card-body">
     {% if case.environment_json %}

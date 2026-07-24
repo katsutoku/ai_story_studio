@@ -457,3 +457,236 @@ environment: {case.environment_json}
       （デフォルトOFF、真相注入は別途明示チェックが必要）
 - [ ] 事件削除時にモブキャラも連動削除する処理を追加
 - [ ] Flaskテストクライアントで一連のフロー（トリック生成→配役→環境生成→章生成連携→評価）を検証
+
+---
+
+## 9. 既知の不具合と対応（実装後に判明したもの）
+
+### 9.1 お任せ生成時の「本文中の配役名」と「配役結果」の不一致
+
+**症状**：事件をお任せ生成（固定配役の指定なし）した場合、`trick_json`の本文
+（`true_mechanism`・`misdirection`・`contradiction_set`内のテキスト）に書かれている
+人物名と、配役（Phase 2.5）で実際に割り当てたキャラクター名が食い違うことがある。
+固定配役として指定した役割は正しい。
+
+**原因**：`build_trick_prompt()`は固定配役の役割にのみ実名を渡している。それ以外の
+（お任せの）役割については名前を一切指定していないため、AIが本文中でその場限りの
+名前を創作してしまう。後の配役ステップで別の実在キャラクター（または新規モブ）を
+割り当てても、本文中の創作名は書き換わらず、そのまま残ってしまう。
+
+**対応**：AIに名前を創作させず、未配役の役割には`【CAST:role_key】`形式の一意な
+トークンで言及させ、配役完了のタイミングで機械的に実名へ置換する。
+
+1. `build_trick_prompt()`の出力JSONスキーマ説明に以下を追記する。
+
+   ```
+   固定配役として実名を渡した役割は、その実名をそのまま本文中で使うこと。
+   それ以外の役割（まだ配役されていない役割）については、本文中（true_mechanism /
+   misdirection / contradiction_set内の全テキスト）で絶対に名前を創作しないこと。
+   代わりに必ず「【CAST:role_key】」の形式のトークンで言及すること
+   （例：探偵役が witness_1 を問い詰める場面なら「【CAST:witness_1】は…」と書く）。
+   ```
+
+2. `app/ai_service.py`に置換処理を追加する。
+
+   ```python
+   def _resolve_trick_json_placeholders(case, project) -> None:
+       """配役完了時に、trick_json内の【CAST:role_key】トークンを実際のキャラクター名に
+       置換する。冪等（トークンが残っていなければ何もしない）なので、何度呼んでも安全。
+       """
+       if not case.trick_json:
+           return
+       try:
+           trick = json.loads(case.trick_json)
+       except (json.JSONDecodeError, TypeError):
+           return
+
+       character_lookup = {c.id: c for c in project.characters}
+       character_lookup.update({c.id: c for c in case.mob_characters})
+       required_cast = _load_json_list(case.required_cast_json)
+
+       replacements = {}
+       for entry in required_cast:
+           role_key = entry.get("role_key")
+           character = character_lookup.get(entry.get("assigned_character_id"))
+           if role_key and character:
+               replacements[f"【CAST:{role_key}】"] = character.name
+
+       def _replace_in(text):
+           if not isinstance(text, str):
+               return text
+           for token, name in replacements.items():
+               text = text.replace(token, name)
+           return text
+
+       trick["true_mechanism"] = _replace_in(trick.get("true_mechanism"))
+       trick["misdirection"] = _replace_in(trick.get("misdirection"))
+       cs = trick.get("contradiction_set")
+       if isinstance(cs, dict):
+           for key in ("witness_statement", "evidence_fact", "key_evidence"):
+               cs[key] = _replace_in(cs.get(key))
+
+       case.trick_json = json.dumps(trick, ensure_ascii=False)
+   ```
+
+3. `app/routes/mystery.py`の`_recompute_cast_status()`に`project`引数を追加し、
+   `cast_status`が`COMPLETE`になったタイミングで上記関数を呼ぶ。
+
+   ```python
+   def _recompute_cast_status(case, project) -> list:
+       required_cast = _load_json_list(case.required_cast_json)
+       if required_cast and all(entry.get("assigned_character_id") for entry in required_cast):
+           case.cast_status = MysteryCase.CAST_STATUS_COMPLETE
+           _resolve_trick_json_placeholders(case, project)
+       else:
+           case.cast_status = MysteryCase.CAST_STATUS_PENDING
+       return required_cast
+   ```
+
+   呼び出し元（`cast_assign`・モブキャラ確定ルート）は`_recompute_cast_status(case)`を
+   `_recompute_cast_status(case, project)`に変更する。
+
+4. `build_environment_prompt()`は配役完了後の（＝トークン置換済みの）`trick_json`を
+   参照する前提のままでよく、変更不要。
+
+**適用範囲の注意**：この修正は今後の新規生成分にのみ有効。既にお任せ生成済みで
+名前が食い違っている事件は、トークンではなく創作された名前が直接埋め込まれているため
+機械的な置換では直せない。該当の事件はトリックを再生成するか、`trick_json`を手動編集する。
+
+### 9.2 固定配役の役割入力（英単語）の負担軽減
+
+**症状**：Phase1フォームの「固定配役の希望」欄は`detective`/`victim`/`culprit`/
+`suspect`/`witness`/`accomplice`/`other`という英単語での入力を要求しており、
+毎回意味を調べたり正確に入力したりする手間がある。
+
+**対応**：`_parse_fixed_role_hints()`が役割の単語を正規化する際に、英単語に加えて
+日本語ラベルも受け付けるようにする（内部的に使う`role_type`の値は英語のまま変更しない）。
+
+```python
+ROLE_LABEL_TO_KEY = {
+    "探偵": "detective",
+    "被害者": "victim",
+    "犯人": "culprit",
+    "容疑者": "suspect",
+    "目撃者": "witness",
+    "共犯者": "accomplice",
+    "その他": "other",
+}
+
+# _parse_fixed_role_hints() 内、role を判定する箇所の直前に追記
+role = ROLE_LABEL_TO_KEY.get(role, role)
+if role not in ROLE_TYPE_CHOICES or character is None:
+    skipped_lines.append(line)
+    continue
+```
+
+`app/forms.py`の`MysteryCaseForm.fixed_role_hints_text`の`description`も、英単語例
+（`detective: 名探偵コナン`）から日本語例（`探偵: 名探偵コナン`）に変更し、英単語も
+引き続き使えることを併記する。
+
+ドロップダウン選択式のUIへの作り替えも可能だが、テキスト欄1つで完結する現状の
+シンプルさを崩すコストに見合わないため見送る。将来的に入力頻度が高くなり負担が
+無視できなくなった場合に再検討する。
+
+---
+
+## 10. 生成済み事件内容のAIによる部分修正
+
+既存の「本文のAIによる部分修正」（`app/routes/chapters.py`の`revise`/`revise_confirm`、
+`build_revision_prompt`）と同じ3段構成（修正指示入力 → プレビュー → 確認保存）を、
+確定済みのトリック（`trick_json`）・環境データ（`environment_json`）にも適用する。
+
+### 10.1 対象範囲の制限（重要）
+
+- 修正対象は**確定済みのデータのみ**（トリックは`status`が`trick_ready`以降、環境は
+  `environment_ready`以降）。まだ配役前（本文に`【CAST:role_key】`トークンが残っている
+  状態）は対象外とし、その場合はPhase2のトリック再生成をやり直す運用とする。
+- **配役（誰がどの役割を演じるか）の変更はこの機能では扱わない**。既存の配役画面
+  （Phase 2.5）に案内する。理由：自由記述のテキスト修正で名前を書き換えさせると、
+  `required_cast_json`の`assigned_character_id`と本文の記述が食い違う、9.1で修正した
+  不一致バグと同種の問題を再発させるおそれがあるため。プロンプト側で「登場人物の名前・
+  人数・役割構成は変更しない」ことを厳守事項として明示する。
+
+### 10.2 ルート設計
+
+```
+GET/POST /mystery-cases/<case_id>/trick/revise
+    → 修正指示＋利用AIを入力 → build_trick_revision_prompt()でプレビュー生成（未保存）
+POST     /mystery-cases/<case_id>/trick/revise/confirm
+    → プレビュー確認後、trick_jsonを上書き保存
+
+GET/POST /mystery-cases/<case_id>/environment/revise
+POST     /mystery-cases/<case_id>/environment/revise/confirm
+    → 同構成。修正後に新たな役割が必要と判明した場合はrequired_cast_jsonに追記し、
+      cast_statusをpendingへ戻して配役画面へ差し戻す（Phase3の generate-environment と同じ扱い）
+```
+
+### 10.3 プロンプト設計（`app/ai_service.py`）
+
+```python
+def build_trick_revision_prompt(case: MysteryCase, project: Project, revision_instructions: str) -> str:
+    lines = [
+        "以下は、あるミステリーゲームの事件について、既に確定しているトリック（真相）データです。",
+        "この内容に対して、下記の「修正指示」で指定された変更点だけを反映するように書き換えてください。",
+        "",
+        "【厳守事項】",
+        "1. 登場人物の名前・人数・役割構成（誰が探偵役／目撃者役か）は絶対に変更しないこと。"
+        "配役自体を変えたいという意図の指示であっても、名前は変えずそのまま維持すること"
+        "（配役の変更は別の画面で行うため、この修正では扱わない）。",
+        "2. contradiction_set（証言・客観的事実・キー証拠）の整合性が崩れないよう、"
+        "変更箇所に連動する他の項目も必要な範囲で合わせて修正すること。",
+        "3. JSON構造（キー名）は変更しないこと。",
+        "",
+        f"## 修正対象の事件データ\n```json\n{case.trick_json}\n```",
+        f"\n## 修正指示\n{revision_instructions}",
+        "\n修正後のJSON全体のみを出力してください（前置き・説明・Markdown装飾は禁止）。",
+    ]
+    return "\n".join(lines)
+
+
+def revise_trick(case: MysteryCase, project: Project, revision_instructions: str, provider: str = "") -> dict:
+    """確定済みのtrick_jsonを、指示された変更点だけ反映する形でAIに書き換えさせる（未保存）。"""
+    prompt = build_trick_revision_prompt(case, project, revision_instructions)
+    raw_text = _dispatch(prompt, provider)
+    return _parse_json_object(raw_text)
+```
+
+`build_environment_revision_prompt`/`revise_environment`も同様の構成とし、環境データ
+（timeline/location/weather/items）に対して「配役済みの実名一覧は変更しない」ことを
+厳守事項に含める。
+
+### 10.4 プレビュー画面での軽い整合性チェック（自動ブロックはしない）
+
+保存前に、修正後テキストに配役済みキャラクター名が1つも含まれていない場合、
+「意図せず新しい人物名を作ってしまっていないか確認してください」という警告を
+プレビュー画面に表示する。あくまで確認を促す警告に留め、章の部分修正と同じく
+最終判断は利用者の確認に委ねる（自動ブロックはしない）。
+
+```python
+def _warn_unexpected_names(revised_trick: dict, case: MysteryCase, project: Project) -> list[str]:
+    known_names = {c.name for c in project.characters} | {c.name for c in case.mob_characters}
+    text = " ".join([
+        revised_trick.get("true_mechanism", ""),
+        revised_trick.get("misdirection", ""),
+        *revised_trick.get("contradiction_set", {}).values(),
+    ])
+    if known_names and not any(name in text for name in known_names):
+        return [
+            "修正後の文章に、配役済みのキャラクター名が見当たりません。"
+            "意図せず新しい人物名を作ってしまっていないか確認してください。"
+        ]
+    return []
+```
+
+### 10.5 チェックリスト追記
+
+- [ ] `app/forms.py` に `MysteryTrickReviseForm` / `MysteryEnvironmentReviseForm`
+      （`revision_instructions` + `provider`。`ChapterReviseForm`と同型）を追加
+- [ ] `app/ai_service.py` に `build_trick_revision_prompt` / `revise_trick` /
+      `build_environment_revision_prompt` / `revise_environment` / `_warn_unexpected_names` を追加
+- [ ] `app/routes/mystery.py` に `trick/revise`・`trick/revise/confirm`・
+      `environment/revise`・`environment/revise/confirm` を追加
+- [ ] `app/templates/mystery/` に `trick_revise.html` / `trick_revise_preview.html` /
+      `environment_revise.html` / `environment_revise_preview.html` を追加
+      （`chapters/revise.html`・`chapters/revise_preview.html`を踏襲）
+- [ ] 事件詳細画面に「AIで部分修正」ボタンを追加（トリック・環境それぞれ、確定済みの場合のみ表示）
