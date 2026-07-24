@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}モブキャラ候補の確認 - {{ case.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.list_cases', project_id=project.id) }}">事件管理</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}">{{ case.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.cast', project_id=project.id, case_id=case.id) }}">配役</a></li>
+    <li class="breadcrumb-item active">モブキャラ候補の確認</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">候補から1人選んで、役割「{{ role.get("role_key", "") }}」に割り当ててください</h1>
+<p class="text-muted">まだ登録されていません。選んだ候補だけがこの事件専用のモブキャラとして登録されます。</p>
+
+<form method="post" action="{{ url_for('mystery.cast_generate_mob_confirm', project_id=project.id, case_id=case.id, role_key=role.get('role_key', '')) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="generated_json" value="{{ generated_json }}">
+
+  <div class="row row-cols-1 row-cols-md-2 g-3 mb-4">
+    {% for c in candidates %}
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="radio" name="selected" value="{{ loop.index0 }}" id="cand{{ loop.index0 }}" {% if loop.first %}checked{% endif %}>
+            <label class="form-check-label fw-bold" for="cand{{ loop.index0 }}">
+              {{ c.get("name", "（名前未設定）") }}
+            </label>
+          </div>
+          <p class="card-subtitle text-muted mb-2">{{ c.get("age", "") }} / {{ c.get("gender", "") }}</p>
+          <p class="card-text small mb-1"><strong>性格:</strong> {{ c.get("personality", "") }}</p>
+          <p class="card-text small mb-1"><strong>外見:</strong> {{ c.get("appearance", "") }}</p>
+          <p class="card-text small mb-0"><strong>背景:</strong> {{ c.get("background", "") }}</p>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <p class="text-muted">候補がありませんでした。</p>
+    {% endfor %}
+  </div>
+
+  <button type="submit" class="btn btn-primary">選んだ候補を登録して割り当てる</button>
+  <a href="{{ url_for('mystery.cast_generate_mob', project_id=project.id, case_id=case.id, role_key=role.get('role_key', '')) }}" class="btn btn-outline-secondary">やり直す</a>
+  <a href="{{ url_for('mystery.cast', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

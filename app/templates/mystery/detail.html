@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}{{ case.title }} - {{ project.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.list_cases', project_id=project.id) }}">事件管理</a></li>
+    <li class="breadcrumb-item active">{{ case.title }}</li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="h3 mb-1">{{ case.title }}</h1>
+    <span class="badge bg-secondary">状態：{{ case.status }}</span>
+    <span class="badge bg-light text-dark border">配役：{{ case.cast_status }}</span>
+  </div>
+  <form action="{{ url_for('mystery.delete', project_id=project.id, case_id=case.id) }}" method="post" onsubmit="return confirm('この事件を削除します。事件専用のモブキャラも合わせて削除されます。元に戻せません。よろしいですか？');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-outline-danger">この事件を削除</button>
+  </form>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">Phase1：構想</div>
+  <div class="card-body">
+    <p class="mb-1"><strong>事件固有の舞台設定：</strong>{{ case.case_world_setting or "（未設定）" }}</p>
+    <p class="mb-0"><strong>オチ・絶対条件：</strong>{{ case.climax_twist }}</p>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">章との紐付け</div>
+  <div class="card-body">
+    <p class="text-muted small">
+      この範囲内の章を生成するときだけ、この事件専用のモブキャラが自動的にキャラクター一覧に加わります。
+      「解決編」に指定した章では、生成フォームで明示的にチェックした場合のみ真相が注入されます。
+    </p>
+    <form method="post" action="{{ url_for('mystery.set_chapters', project_id=project.id, case_id=case.id) }}" class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-5">
+        <label class="form-label small">発生する章（trigger）</label>
+        <select name="trigger_chapter_id" class="form-select form-select-sm">
+          <option value="">（未設定）</option>
+          {% for cid, label in chapter_choices %}
+          <option value="{{ cid }}" {% if case.trigger_chapter_id == cid %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label small">解決編の章（resolution）</label>
+        <select name="resolution_chapter_id" class="form-select form-select-sm">
+          <option value="">（未設定）</option>
+          {% for cid, label in chapter_choices %}
+          <option value="{{ cid }}" {% if case.resolution_chapter_id == cid %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-sm btn-outline-primary w-100">更新</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Phase2：トリック（真相）</span>
+    <div>
+      <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleSpoiler()">
+        <span id="spoilerToggleLabel">ネタバレを表示する</span>
+      </button>
+      <a href="{{ url_for('mystery.generate_trick_view', project_id=project.id, case_id=case.id) }}" class="btn btn-sm btn-outline-success">
+        {{ "AIで再生成" if case.trick_json else "AIで生成する" }}
+      </a>
+    </div>
+  </div>
+  <div class="card-body">
+    {% if case.trick_json %}
+    <div id="spoilerContent" class="d-none">
+      <p class="mb-1"><strong>トリックタイプ：</strong>{{ trick.get("trick_type", "") }}</p>
+      <p class="mb-1"><strong>真相の仕組み：</strong>{{ trick.get("true_mechanism", "") }}</p>
+      <p class="mb-1"><strong>ミスディレクション：</strong>{{ trick.get("misdirection", "") }}</p>
+      {% set cs = trick.get("contradiction_set", {}) %}
+      <p class="mb-1"><strong>容疑者の証言：</strong>{{ cs.get("witness_statement", "") }}</p>
+      <p class="mb-1"><strong>客観的事実：</strong>{{ cs.get("evidence_fact", "") }}</p>
+      <p class="mb-0"><strong>決め手となる証拠：</strong>{{ cs.get("key_evidence", "") }}</p>
+    </div>
+    <p id="spoilerHidden" class="text-muted mb-0">ネタバレのため非表示になっています。「ネタバレを表示する」を押すと確認できます。</p>
+    {% else %}
+    <p class="text-muted mb-0">まだトリックが生成されていません。</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Phase2.5：配役</span>
+    <a href="{{ url_for('mystery.cast', project_id=project.id, case_id=case.id) }}" class="btn btn-sm btn-primary" {% if not case.trick_json %}aria-disabled="true" tabindex="-1" onclick="return false;"{% endif %}>配役を管理する</a>
+  </div>
+  <ul class="list-group list-group-flush">
+    {% for role in required_cast %}
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+      <span>{{ role.get("role_key", "") }}（{{ role.get("role_type", "") }}）</span>
+      {% if role.get("assigned_character_name") %}
+      <span class="badge bg-success">{{ role.get("assigned_character_name") }}</span>
+      {% else %}
+      <span class="badge bg-secondary">未配役</span>
+      {% endif %}
+    </li>
+    {% else %}
+    <li class="list-group-item text-muted">まだ役割がありません（先にトリックを生成してください）。</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Phase3：環境・小道具</span>
+    <a href="{{ url_for('mystery.generate_environment_view', project_id=project.id, case_id=case.id) }}" class="btn btn-sm btn-outline-success" {% if case.cast_status != 'complete' %}aria-disabled="true" tabindex="-1" onclick="return false;"{% endif %}>
+      {{ "AIで再生成" if case.environment_json else "AIで生成する" }}
+    </a>
+  </div>
+  <div class="card-body">
+    {% if case.environment_json %}
+    <p class="mb-1"><strong>天候：</strong>{{ environment.get("weather", "") }}</p>
+    <p class="mb-0"><strong>小道具：</strong>{{ environment.get("items", []) | map(attribute="name") | join("、") }}</p>
+    {% else %}
+    <p class="text-muted mb-0">まだ生成されていません（配役が全て完了すると生成できます）。</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Phase5：矛盾検知（判定・アナライザーAI）</span>
+    <a href="{{ url_for('mystery.evaluate', project_id=project.id, case_id=case.id) }}" class="btn btn-sm btn-outline-success" {% if not case.trick_json %}aria-disabled="true" tabindex="-1" onclick="return false;"{% endif %}>検証する</a>
+  </div>
+  <div class="card-body">
+    {% if case.latest_evaluation_json %}
+    <p class="mb-1"><strong>総合評価：</strong><span class="badge bg-primary">{{ evaluation.get("overall_grade", "") }}</span></p>
+    <p class="mb-0"><strong>検出された矛盾：</strong>{{ evaluation.get("logical_flaws", []) | length }}件</p>
+    {% else %}
+    <p class="text-muted mb-0">まだ検証されていません。</p>
+    {% endif %}
+  </div>
+</div>
+
+<a href="{{ url_for('mystery.list_cases', project_id=project.id) }}" class="btn btn-outline-secondary">事件一覧へ戻る</a>
+
+<script>
+  function toggleSpoiler() {
+    const content = document.getElementById("spoilerContent");
+    const hidden = document.getElementById("spoilerHidden");
+    const label = document.getElementById("spoilerToggleLabel");
+    if (!content) { return; }
+    const showing = !content.classList.contains("d-none");
+    content.classList.toggle("d-none", showing);
+    if (hidden) { hidden.classList.toggle("d-none", !showing); }
+    label.textContent = showing ? "ネタバレを表示する" : "ネタバレを隠す";
+  }
+</script>
+{% endblock %}

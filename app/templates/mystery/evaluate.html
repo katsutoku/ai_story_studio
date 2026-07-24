@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}矛盾検知 - {{ case.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.list_cases', project_id=project.id) }}">事件管理</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}">{{ case.title }}</a></li>
+    <li class="breadcrumb-item active">矛盾検知</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">Phase5：矛盾検知（判定・アナライザーAI）</h1>
+<p class="text-muted">
+  この事件の正解データ（トリック・環境）と、実際に書かれた章本文または尋問シナリオのログを比較し、
+  キャラが知るはずのない情報を話していないか等を検証します。ボタンを押したときだけ実行されます（自動実行はしません）。
+</p>
+
+<form method="post" class="bg-white p-4 rounded shadow-sm ai-generate-form" novalidate>
+  {{ form.hidden_tag() }}
+
+  <div class="mb-3">
+    {{ form.source_type.label(class="form-label") }}
+    {{ form.source_type(class="form-select") }}
+  </div>
+
+  <div class="mb-3">
+    {{ form.chapter_id.label(class="form-label") }}
+    {{ form.chapter_id(class="form-select") }}
+  </div>
+
+  <div class="mb-3">
+    {{ form.manual_text.label(class="form-label") }}
+    {{ form.manual_text(class="form-control", rows=8) }}
+  </div>
+
+  <div class="mb-3">
+    {{ form.provider.label(class="form-label") }}
+    {{ form.provider(class="form-select") }}
+  </div>
+
+  <button type="submit" class="btn btn-success" data-loading-text="AIが矛盾を検証しています。しばらくお待ちください…">検証する</button>
+  <a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

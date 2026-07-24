@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}矛盾検知結果の確認 - {{ case.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.list_cases', project_id=project.id) }}">事件管理</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}">{{ case.title }}</a></li>
+    <li class="breadcrumb-item active">矛盾検知結果の確認</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">検証結果の確認</h1>
+<p class="text-muted">まだ保存されていません。内容を確認し、問題なければ保存してください。</p>
+
+<div class="card mb-3">
+  <div class="card-header">総合評価</div>
+  <div class="card-body"><span class="badge bg-primary fs-6">{{ evaluation.get("overall_grade", "") }}</span></div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">論理的な矛盾・不整合</div>
+  <ul class="list-group list-group-flush">
+    {% for flaw in evaluation.get("logical_flaws", []) %}
+    <li class="list-group-item">
+      <p class="mb-1">{{ flaw.get("description", "") }}</p>
+      {% if flaw.get("location_hint") %}<p class="small text-muted mb-1">該当箇所：{{ flaw.get("location_hint", "") }}</p>{% endif %}
+      {% if flaw.get("suggestion") %}<p class="small mb-0">改善案：{{ flaw.get("suggestion", "") }}</p>{% endif %}
+    </li>
+    {% else %}
+    <li class="list-group-item text-muted">矛盾は検出されませんでした。</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">証拠提示によるプレイアビリティ</div>
+  <div class="card-body"><p class="mb-0" style="white-space: pre-wrap;">{{ evaluation.get("contradiction_playability", "") }}</p></div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">ドラマ性・物語のクオリティ</div>
+  <div class="card-body"><p class="mb-0" style="white-space: pre-wrap;">{{ evaluation.get("narrative_quality", "") }}</p></div>
+</div>
+
+{% if evaluation.get("notable_excerpts") %}
+<div class="card mb-4">
+  <div class="card-header">注目箇所の抜粋</div>
+  <ul class="list-group list-group-flush">
+    {% for excerpt in evaluation.get("notable_excerpts", []) %}
+    <li class="list-group-item">{{ excerpt }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<form method="post" action="{{ url_for('mystery.evaluate_confirm', project_id=project.id, case_id=case.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="generated_json" value="{{ generated_json }}">
+  <input type="hidden" name="source_label" value="{{ source_label }}">
+  <input type="hidden" name="target_chapter_id" value="{{ target_chapter_id }}">
+  <button type="submit" class="btn btn-primary">この内容で保存する</button>
+  <a href="{{ url_for('mystery.evaluate', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">やり直す</a>
+  <a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">破棄してキャンセル</a>
+</form>
+{% endblock %}

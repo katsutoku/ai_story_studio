@@ -223,6 +223,8 @@ def generate(project_id):
             title_hint=form.title.data,
             additional_notes=form.additional_notes.data,
             provider=form.provider.data,
+            include_case_environment=form.include_case_environment.data,
+            reveal_case_truth=form.reveal_case_truth.data,
         )
 
     return render_template(
@@ -250,6 +252,8 @@ def regenerate(project_id, chapter_id):
             additional_notes=form.additional_notes.data,
             provider=form.provider.data,
             existing_chapter=chapter,
+            include_case_environment=form.include_case_environment.data,
+            reveal_case_truth=form.reveal_case_truth.data,
         )
 
     return render_template(
@@ -258,7 +262,14 @@ def regenerate(project_id, chapter_id):
 
 
 def _run_generation(
-    project, chapter_number, title_hint, additional_notes, provider, existing_chapter=None
+    project,
+    chapter_number,
+    title_hint,
+    additional_notes,
+    provider,
+    existing_chapter=None,
+    include_case_environment=False,
+    reveal_case_truth=False,
 ):
     """AI生成の共通処理：章レコードの用意 → API呼び出し → 保存/エラー処理"""
     chapter = existing_chapter or Chapter.query.filter_by(
@@ -280,7 +291,12 @@ def _run_generation(
 
     try:
         content = generate_chapter_content(
-            project, chapter_number, additional_notes=additional_notes or "", provider=provider
+            project,
+            chapter_number,
+            additional_notes=additional_notes or "",
+            provider=provider,
+            include_case_environment=include_case_environment,
+            reveal_case_truth=reveal_case_truth,
         )
     except AIGenerationError as exc:
         # AI生成エラー時：エラーメッセージ表示、ステータスをfailedへ更新、再生成可能とする

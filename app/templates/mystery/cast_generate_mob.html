@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}モブキャラ生成 - {{ case.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.list_cases', project_id=project.id) }}">事件管理</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}">{{ case.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.cast', project_id=project.id, case_id=case.id) }}">配役</a></li>
+    <li class="breadcrumb-item active">モブキャラ生成</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-1">役割「{{ role.get("role_key", "") }}」用のモブキャラをAIに生成させる</h1>
+<p class="text-muted">
+  役割: {{ role.get("role_type", "") }} / 求められる特徴: {{ role.get("public_trait", "") }}<br>
+  生成されたキャラクターは、この事件専用のモブキャラとして登録され（メインのキャラクター管理一覧には表示されません）、
+  この役割に自動で割り当てられます。
+</p>
+
+<form method="post" class="bg-white p-4 rounded shadow-sm ai-generate-form" novalidate>
+  {{ form.hidden_tag() }}
+  <div class="row">
+    <div class="col-md-4 mb-3">
+      {{ form.count.label(class="form-label") }}
+      {{ form.count(class="form-control" + (" is-invalid" if form.count.errors else "")) }}
+      {% for error in form.count.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-8 mb-3">
+      {{ form.provider.label(class="form-label") }}
+      {{ form.provider(class="form-select") }}
+    </div>
+  </div>
+  <button type="submit" class="btn btn-success" data-loading-text="AIがモブキャラ案を考えています。しばらくお待ちください…">生成する</button>
+  <a href="{{ url_for('mystery.cast', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

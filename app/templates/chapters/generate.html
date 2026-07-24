@@ -47,6 +47,17 @@
     {{ form.additional_notes(class="form-control", rows=4, placeholder="例：この章では〇〇との出会いを描いてほしい、など") }}
   </div>
 
+  <div class="form-check mb-2">
+    {{ form.include_case_environment(class="form-check-input") }}
+    {{ form.include_case_environment.label(class="form-check-label") }}
+    {% if form.include_case_environment.description %}<div class="form-text">{{ form.include_case_environment.description }}</div>{% endif %}
+  </div>
+  <div class="form-check mb-3">
+    {{ form.reveal_case_truth(class="form-check-input") }}
+    {{ form.reveal_case_truth.label(class="form-check-label") }}
+    {% if form.reveal_case_truth.description %}<div class="form-text">{{ form.reveal_case_truth.description }}</div>{% endif %}
+  </div>
+
   <button type="submit" class="btn btn-success" data-loading-text="AIが章の本文を執筆中です。しばらくお待ちください…">
     {{ "再生成する" if chapter else "生成する" }}
   </button>

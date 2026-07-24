@@ -248,6 +248,14 @@ class GenerateChapterForm(FlaskForm):
         validators=[Optional()],
         description="例：この章では〇〇との出会いを描いてほしい、など",
     )
+    include_case_environment = BooleanField(
+        "この章が関わる事件の客観的事実（タイムライン・場所・天候・小道具）を注入する",
+        description="事件の真相そのものではなく、作中で自然に描写してよい情報のみが渡されます（デフォルトOFF）。",
+    )
+    reveal_case_truth = BooleanField(
+        "この章で事件の真相を開示する（解決編に指定した章でのみ有効）",
+        description="この章がその事件の「解決編」として紐付けられている場合に限り、真相が注入されます（デフォルトOFF）。",
+    )
 
 
 class ForeshadowingForm(FlaskForm):
@@ -267,6 +275,96 @@ class ForeshadowingForm(FlaskForm):
             ("processing", "処理中（予定）"),
             ("completed", "回収済み"),
             ("failed", "失敗（予定）"),
+        ],
+        validators=[DataRequired()],
+    )
+
+
+class MysteryCaseForm(FlaskForm):
+    """事件Phase1入力フォーム（世界観補足・オチ・固定配役の希望）"""
+
+    title = StringField(
+        "事件名", validators=[DataRequired(message="事件名は必須です。"), Length(max=200)]
+    )
+    case_world_setting = TextAreaField(
+        "この事件固有の舞台設定（補足・任意）",
+        validators=[Optional()],
+        description="作品全体の世界設定とは別に、この事件だけで使う補足情報があれば入力してください。",
+    )
+    climax_twist = TextAreaField(
+        "オチ・絶対条件",
+        validators=[DataRequired(message="オチは必須です。")],
+        description="例：実は被害者は双子で、事件当夜に入れ替わっていた",
+    )
+    fixed_role_hints_text = TextAreaField(
+        "固定配役の希望（任意）",
+        validators=[Optional()],
+        description=(
+            "強い希望がある役割だけ「役割: キャラクター名」の形式で1行ずつ入力してください"
+            "（例：detective: 名探偵コナン）。役割はdetective/victim/culprit/suspect/witness/"
+            "accomplice/otherのいずれか。指定しない役割はすべてAIが自由に設計します。"
+            "キャラクター名はこの作品に登録済みのものと一致させてください。"
+        ),
+    )
+
+
+class MysteryGenerateWithProviderForm(FlaskForm):
+    """トリック生成・環境生成で共用する、プロバイダ選択のみのフォーム"""
+
+    provider = SelectField(
+        "利用するAI",
+        choices=[
+            ("gemini", "Gemini（Google）"),
+            ("openai", "ChatGPT（OpenAI）"),
+            ("claude", "Claude（Anthropic）"),
+            ("ollama", "Ollama（ローカル実行）"),
+        ],
+        validators=[DataRequired()],
+    )
+
+
+class MysteryMobGenerateForm(FlaskForm):
+    """配役ステップでの、事件専用モブキャラAI生成フォーム"""
+
+    count = IntegerField(
+        "生成する候補数",
+        default=3,
+        validators=[DataRequired(message="候補数は必須です。"), NumberRange(min=1, max=5, message="1〜5件の範囲で指定してください。")],
+    )
+    provider = SelectField(
+        "利用するAI",
+        choices=[
+            ("gemini", "Gemini（Google）"),
+            ("openai", "ChatGPT（OpenAI）"),
+            ("claude", "Claude（Anthropic）"),
+            ("ollama", "Ollama（ローカル実行）"),
+        ],
+        validators=[DataRequired()],
+    )
+
+
+class MysteryEvaluateForm(FlaskForm):
+    """Phase5 判定AI（矛盾検知）フォーム"""
+
+    source_type = SelectField(
+        "検証対象",
+        choices=[
+            ("chapter", "既存の章本文から選ぶ"),
+            ("text", "本文/尋問ログを直接貼り付ける"),
+        ],
+        validators=[DataRequired()],
+    )
+    chapter_id = SelectField("対象の章（検証対象が「章本文」の場合）", coerce=int, validators=[Optional()])
+    manual_text = TextAreaField(
+        "本文/尋問ログを直接貼り付け（検証対象が「直接貼り付け」の場合）", validators=[Optional()]
+    )
+    provider = SelectField(
+        "利用するAI",
+        choices=[
+            ("gemini", "Gemini（Google）"),
+            ("openai", "ChatGPT（OpenAI）"),
+            ("claude", "Claude（Anthropic）"),
+            ("ollama", "Ollama（ローカル実行）"),
         ],
         validators=[DataRequired()],
     )

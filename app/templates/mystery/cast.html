@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}配役 - {{ case.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.list_cases', project_id=project.id) }}">事件管理</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}">{{ case.title }}</a></li>
+    <li class="breadcrumb-item active">配役</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-1">Phase2.5：配役（キャスティング）</h1>
+<p class="text-muted">
+  トリックが要求する各役割に、既存のキャラクターを選ぶか、この事件専用のモブキャラをAIに生成させて割り当ててください。
+  全ての役割の配役が完了すると、環境・小道具の生成（Phase3）に進めます。
+</p>
+
+<div class="alert {{ 'alert-success' if case.cast_status == 'complete' else 'alert-warning' }}">
+  配役状況：{{ "全て配役済み" if case.cast_status == "complete" else "未配役の役割があります" }}
+</div>
+
+<div class="row row-cols-1 row-cols-md-2 g-3 mb-4">
+  {% for role in required_cast %}
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><strong>{{ role.get("role_key", "") }}</strong>（{{ role.get("role_type", "") }}）</span>
+        {% if role.get("assigned_character_name") %}
+        <span class="badge bg-success">配役済み</span>
+        {% else %}
+        <span class="badge bg-secondary">未配役</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <p class="card-text small text-muted">{{ role.get("public_trait", "") }}</p>
+
+        <form method="post" action="{{ url_for('mystery.cast_assign', project_id=project.id, case_id=case.id) }}" class="mb-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="role_key" value="{{ role.get('role_key', '') }}">
+          <div class="input-group input-group-sm">
+            <select name="character_id" class="form-select">
+              <option value="">（未配役にする）</option>
+              {% for character in assignable_characters %}
+              <option value="{{ character.id }}" {% if role.get("assigned_character_id") == character.id %}selected{% endif %}>
+                {{ character.name }}{{ "（モブ）" if character.mystery_case_id else "" }}
+              </option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-outline-primary">設定</button>
+          </div>
+        </form>
+
+        <a href="{{ url_for('mystery.cast_generate_mob', project_id=project.id, case_id=case.id, role_key=role.get('role_key', '')) }}" class="btn btn-sm btn-outline-success">AIでモブキャラ案を生成</a>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <p class="text-muted">配役すべき役割がありません。</p>
+  {% endfor %}
+</div>
+
+<a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">事件詳細へ戻る</a>
+{% if case.cast_status == "complete" %}
+<a href="{{ url_for('mystery.generate_environment_view', project_id=project.id, case_id=case.id) }}" class="btn btn-success">環境・小道具を生成する（Phase3）</a>
+{% endif %}
+{% endblock %}

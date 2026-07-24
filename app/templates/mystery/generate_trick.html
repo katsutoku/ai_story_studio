@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}トリックを生成 - {{ case.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.list_cases', project_id=project.id) }}">事件管理</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}">{{ case.title }}</a></li>
+    <li class="breadcrumb-item active">トリック生成</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">Phase2：トリック（真相）をAIに生成させる</h1>
+<p class="text-muted">
+  オチ・世界観・固定配役の希望から、真相の仕組み・矛盾セット・必要な役割（抽象配役表）をAIが考えます。
+  生成結果は次の画面で確認してから確定保存します。
+</p>
+
+<form method="post" class="bg-white p-4 rounded shadow-sm ai-generate-form" novalidate>
+  {{ form.hidden_tag() }}
+  <div class="mb-3">
+    {{ form.provider.label(class="form-label") }}
+    {{ form.provider(class="form-select") }}
+  </div>
+  <button type="submit" class="btn btn-success" data-loading-text="AIがトリックを考えています。しばらくお待ちください…">生成する</button>
+  <a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

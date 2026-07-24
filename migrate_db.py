@@ -9,9 +9,15 @@
   - chapters.generation_error
   - chapters.generation_provider
   - characters.thumbnail_filename
+  - characters.mystery_case_id
 
 このスクリプトは、既に存在するカラムはスキップし、不足しているものだけを
 ALTER TABLE で追加します。何度実行しても安全です（データは消えません）。
+
+なお、mystery_cases テーブル自体（ミステリー・トリック生成モジュール）は新規テーブルのため、
+python run.py を実行すれば db.create_all() により自動的に作成されます
+（このスクリプトでの対応は不要です。CLAUDE.md「DBマイグレーションは手動」の方針どおり、
+既存テーブルへのカラム追加のみをこのスクリプトで扱います）。
 
 使い方（Windows）:
     1. このファイル（migrate_db.py）を、AI Story Studioのプロジェクトフォルダ
@@ -37,6 +43,7 @@ COLUMNS_TO_ENSURE = [
     ("chapters", "generation_error", "TEXT"),
     ("chapters", "generation_provider", "VARCHAR(20)"),
     ("characters", "thumbnail_filename", "VARCHAR(300)"),
+    ("characters", "mystery_case_id", "INTEGER"),
 ]
 
 

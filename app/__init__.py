@@ -26,6 +26,7 @@ def create_app(config_class: type = Config) -> Flask:
     from .routes.foreshadowings import foreshadowings_bp
     from .routes.plot import plot_bp
     from .routes.relationships import relationships_bp
+    from .routes.mystery import mystery_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(projects_bp)
@@ -35,6 +36,7 @@ def create_app(config_class: type = Config) -> Flask:
     app.register_blueprint(foreshadowings_bp)
     app.register_blueprint(plot_bp)
     app.register_blueprint(relationships_bp)
+    app.register_blueprint(mystery_bp)
 
     register_error_handlers(app)
 

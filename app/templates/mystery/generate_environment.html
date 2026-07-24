@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}環境・小道具を生成 - {{ case.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.list_cases', project_id=project.id) }}">事件管理</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}">{{ case.title }}</a></li>
+    <li class="breadcrumb-item active">環境・小道具生成</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">Phase3：環境・小道具をAIに生成させる</h1>
+<p class="text-muted">
+  確定したトリックと、配役済みの実名一覧をもとに、矛盾のない現場のタイムライン・場所・天候・小道具をAIが考えます。
+  生成中に新たな役割が必要と判明した場合は、配役ステップへ差し戻されます。
+</p>
+
+<form method="post" class="bg-white p-4 rounded shadow-sm ai-generate-form" novalidate>
+  {{ form.hidden_tag() }}
+  <div class="mb-3">
+    {{ form.provider.label(class="form-label") }}
+    {{ form.provider(class="form-select") }}
+  </div>
+  <button type="submit" class="btn btn-success" data-loading-text="AIが現場データを考えています。しばらくお待ちください…">生成する</button>
+  <a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

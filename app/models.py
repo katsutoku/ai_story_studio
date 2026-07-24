@@ -61,6 +61,10 @@ class Character(db.Model):
     # サムネイル画像（サーバー側のディスクにファイルとして保存し、ファイル名のみDBに持たせる）
     thumbnail_filename = db.Column(db.String(300), nullable=True)
 
+    # NULL = 通常のメインキャスト（キャラクター管理一覧に表示）
+    # 値あり = その事件専用のモブキャラ（キャラクター管理一覧には表示せず、事件詳細から管理する）
+    mystery_case_id = db.Column(db.Integer, db.ForeignKey("mystery_cases.id"), nullable=True)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -160,3 +164,82 @@ class Foreshadowing(db.Model):
 
     def __repr__(self):
         return f"<Foreshadowing {self.id} {self.title} ({self.status})>"
+
+
+class MysteryCase(db.Model):
+    """事件（ミステリー・トリック生成モジュール）
+
+    1作品に複数の事件（章単位のミステリー）を持てる。真相（trick_json）は秘匿情報のため、
+    通常の章生成プロンプトへは絶対に自動注入しない（app/ai_service.pyのbuild_prompt()を参照）。
+    """
+
+    __tablename__ = "mystery_cases"
+
+    STATUS_DRAFT = "draft"
+    STATUS_TRICK_READY = "trick_ready"
+    STATUS_ENVIRONMENT_READY = "environment_ready"
+    STATUS_EVALUATED = "evaluated"
+
+    CAST_STATUS_PENDING = "pending"
+    CAST_STATUS_COMPLETE = "complete"
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+
+    title = db.Column(db.String(200), nullable=False)  # 事件名（例：離島館連続殺人事件）
+
+    # --- Phase 1: ユーザー入力（構想） ---
+    case_world_setting = db.Column(db.Text, nullable=True)  # 事件固有の舞台設定（補足）
+    climax_twist = db.Column(db.Text, nullable=True)  # 絶対条件・オチ
+    fixed_role_hints_json = db.Column(db.Text, nullable=True)
+    # 任意。「探偵役はこのキャラクターに固定したい」等、強い希望がある役割のみユーザーが指定。
+    # [{"character_id": 12, "role": "detective"}]
+
+    # --- Phase 2: トリック（真相）+ 抽象配役表 ---
+    trick_json = db.Column(db.Text, nullable=True)  # 真相・矛盾セットを含む秘匿情報
+    required_cast_json = db.Column(db.Text, nullable=True)
+    # トリックが要求する役割の一覧（配役前は抽象状態）。
+    # fixed_character_id はPhase1から引き継いだ確定分。
+    # assigned_character_id はPhase2.5（配役）で確定するまではnull。
+
+    # --- Phase 2.5: 配役（キャスティング）確定結果 ---
+    cast_status = db.Column(db.String(20), default=CAST_STATUS_PENDING)
+    # required_cast_jsonの各要素のassigned_character_idを埋めていく形で記録するため、
+    # 別テーブルは持たずrequired_cast_jsonを正とする。
+
+    # --- Phase 3: 環境・小道具 ---
+    environment_json = db.Column(db.Text, nullable=True)  # timeline / location / weather / items
+
+    # --- Phase 5: 判定結果 ---
+    latest_evaluation_json = db.Column(db.Text, nullable=True)
+    latest_evaluation_source = db.Column(db.String(20), nullable=True)  # "chapter" | "interrogation"
+    latest_evaluation_target_chapter_id = db.Column(
+        db.Integer, db.ForeignKey("chapters.id"), nullable=True
+    )
+
+    # 章との紐付け（この事件がどの章で発生するか。任意・未設定可。常にChapter.id単位で参照する）
+    trigger_chapter_id = db.Column(db.Integer, db.ForeignKey("chapters.id"), nullable=True)
+    resolution_chapter_id = db.Column(db.Integer, db.ForeignKey("chapters.id"), nullable=True)
+
+    status = db.Column(db.String(20), default=STATUS_DRAFT)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    project = db.relationship("Project", backref="mystery_cases")
+
+    # この事件専用のモブキャラ一覧（Character.mystery_case_idの逆参照）。
+    # 削除時はルート側で明示的に連動削除する（サムネイルファイルの削除も伴うため、
+    # ORMのcascadeには任せない）。
+    mob_characters = db.relationship(
+        "Character", backref="mystery_case", lazy=True, foreign_keys="Character.mystery_case_id"
+    )
+
+    trigger_chapter = db.relationship("Chapter", foreign_keys=[trigger_chapter_id])
+    resolution_chapter = db.relationship("Chapter", foreign_keys=[resolution_chapter_id])
+    latest_evaluation_target_chapter = db.relationship(
+        "Chapter", foreign_keys=[latest_evaluation_target_chapter_id]
+    )
+
+    def __repr__(self):
+        return f"<MysteryCase {self.id} {self.title} ({self.status})>"

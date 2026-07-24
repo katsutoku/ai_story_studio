@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from flask import current_app
 
-from .models import Chapter, Foreshadowing, Project
+from .models import Chapter, Foreshadowing, MysteryCase, Project
 
 # UIのセレクトボックス等で使うプロバイダ一覧
 PROVIDER_CHOICES = [
@@ -31,9 +31,49 @@ class AIGenerationError(Exception):
     """
 
 
-def build_prompt(project: Project, target_chapter_number: int, additional_notes: str = "") -> str:
+def _mystery_cases_for_chapter_number(project: Project, chapter_number: int) -> list:
+    """指定した章番号が、いずれかのMysteryCaseの事件範囲
+    （trigger_chapter_id〜resolution_chapter_id、章番号ベース）に含まれるかを判定する。
+
+    range両端が章番号ベースなのは、Chapterがmajor_number/sub_number構成に将来拡張されても
+    FK参照先（Chapter.id）自体は変わらないため（設計書5.1節）。
+    """
+    matched = []
+    for case in project.mystery_cases:
+        trigger_number = case.trigger_chapter.chapter_number if case.trigger_chapter else None
+        resolution_number = case.resolution_chapter.chapter_number if case.resolution_chapter else None
+        if trigger_number is not None and resolution_number is not None:
+            in_range = trigger_number <= chapter_number <= resolution_number
+        elif trigger_number is not None:
+            in_range = chapter_number == trigger_number
+        elif resolution_number is not None:
+            in_range = chapter_number == resolution_number
+        else:
+            in_range = False
+        if in_range:
+            matched.append(case)
+    return matched
+
+
+def build_prompt(
+    project: Project,
+    target_chapter_number: int,
+    additional_notes: str = "",
+    include_case_environment: bool = False,
+    reveal_case_truth: bool = False,
+) -> str:
     """プロジェクト情報・キャラクター・世界設定・過去章要約・未回収の伏線から
     次章生成用のプロンプトを組み立てる（プロバイダ非依存の共通処理）。
+
+    ミステリー・トリック生成モジュール（app/models.py MysteryCase）との連携はここに限定する。
+    本編生成のルール自体（この関数の基本構造・書式規約）には手を入れず、事件範囲内の章にのみ
+    「材料」を追加供給する（詳細はdocs/mystery_trick_module_design.md 0.1節・5章、CLAUDE.md「9.」）。
+
+    include_case_environment: Trueの場合のみ、事件範囲内の章にenvironment_json（客観的事実。
+        真相そのものではない）を注入する（デフォルトOFF）。
+    reveal_case_truth: Trueかつ、この章が該当事件のresolution_chapter（解決編）である場合のみ、
+        trick_json.true_mechanism（真相）を注入する（デフォルトOFF。誤って地の文生成プロンプトに
+        真相が混入すると伏線が台無しになるため、二重に明示的なオプトインを要求する）。
     """
     lines = [
         "あなたは経験豊富なノベルゲーム／アドベンチャーゲームのシナリオライターです。",
@@ -51,8 +91,12 @@ def build_prompt(project: Project, target_chapter_number: int, additional_notes:
         )
 
     lines.append("\n## キャラクター")
-    if project.characters:
-        for c in project.characters:
+    # 事件専用のモブキャラ（mystery_case_idが設定されているもの）は、事件範囲外の章では
+    # 存在しないものとして扱うため、通常のキャラクター一覧には含めない（下の事件連携セクションで
+    # 範囲内の章にのみ別途追加する）
+    main_characters = [c for c in project.characters if c.mystery_case_id is None]
+    if main_characters:
+        for c in main_characters:
             lines.append(
                 f"- {c.name}（{c.age or '年齢不明'} / {c.gender or '性別不明'}）"
                 f" 性格: {c.personality or '未設定'} / 外見: {c.appearance or '未設定'}"
@@ -66,6 +110,67 @@ def build_prompt(project: Project, target_chapter_number: int, additional_notes:
             lines.append(f"- {w.name}: {w.world_view or ''} / 時代背景: {w.era or ''} / ルール: {w.rules or ''}")
     else:
         lines.append("- （未登録）")
+
+    mystery_cases_in_range = _mystery_cases_for_chapter_number(project, target_chapter_number)
+    if mystery_cases_in_range:
+        target_chapter_row = next(
+            (ch for ch in project.chapters if ch.chapter_number == target_chapter_number), None
+        )
+        mob_characters = [c for case in mystery_cases_in_range for c in case.mob_characters]
+        if mob_characters:
+            lines.append(
+                "\n## この章に関わる事件専用のモブキャラ（この事件の範囲内の章にのみ登場する端役）"
+            )
+            for c in mob_characters:
+                lines.append(
+                    f"- {c.name}（{c.age or '年齢不明'} / {c.gender or '性別不明'}）"
+                    f" 性格: {c.personality or '未設定'} / 外見: {c.appearance or '未設定'}"
+                )
+
+        if include_case_environment:
+            for case in mystery_cases_in_range:
+                environment = _load_json_dict_or_none(case.environment_json)
+                if not environment:
+                    continue
+                lines.append(
+                    f"\n## 事件「{case.title}」の客観的事実（作中で自然に描写してよい情報。"
+                    "真相そのものではないため、これだけを頼りに真相を書かないこと）"
+                )
+                if environment.get("timeline"):
+                    lines.append(
+                        "タイムライン: "
+                        + "、".join(
+                            f"{t.get('time', '')} {t.get('location', '')} {t.get('event', '')}"
+                            for t in environment.get("timeline", [])
+                        )
+                    )
+                if environment.get("location"):
+                    lines.append(
+                        "場所: "
+                        + "、".join(
+                            f"{l.get('name', '')}（{l.get('description', '')}）"
+                            for l in environment.get("location", [])
+                        )
+                    )
+                if environment.get("weather"):
+                    lines.append(f"天候: {environment.get('weather', '')}")
+                if environment.get("items"):
+                    lines.append(
+                        "小道具: "
+                        + "、".join(item.get("name", "") for item in environment.get("items", []))
+                    )
+
+        if reveal_case_truth and target_chapter_row is not None:
+            for case in mystery_cases_in_range:
+                if case.resolution_chapter_id != target_chapter_row.id:
+                    continue
+                trick = _load_json_dict_or_none(case.trick_json)
+                if trick and trick.get("true_mechanism"):
+                    lines.append(
+                        f"\n## 事件「{case.title}」の真相（この章は解決編として明示指定されたため注入。"
+                        "この章で真相を開示する描写をしてよい）\n"
+                        f"{trick.get('true_mechanism', '')}"
+                    )
 
     lines.append("\n## これまでの章の要約")
     past_chapters = [
@@ -161,17 +266,28 @@ def generate_chapter_content(
     target_chapter_number: int,
     additional_notes: str = "",
     provider: str = "",
+    include_case_environment: bool = False,
+    reveal_case_truth: bool = False,
 ) -> str:
     """選択されたAIプロバイダを呼び出して章本文（Markdown）を生成する。
 
     provider: "openai" / "gemini" / "claude" / "ollama"。
     未指定の場合は設定のデフォルトプロバイダ（DEFAULT_AI_PROVIDER）を使用する。
 
+    include_case_environment / reveal_case_truth: build_prompt()を参照
+    （ミステリー・トリック生成モジュールとの連携。ともにデフォルトOFF）。
+
     認証エラー・通信エラー・レスポンス不正などが発生した場合は
     AIGenerationError を送出する。呼び出し側で章の生成ステータスを
     failed に更新し、エラーメッセージを表示し、再生成可能にする。
     """
-    prompt = build_prompt(project, target_chapter_number, additional_notes)
+    prompt = build_prompt(
+        project,
+        target_chapter_number,
+        additional_notes,
+        include_case_environment=include_case_environment,
+        reveal_case_truth=reveal_case_truth,
+    )
     return _dispatch(prompt, provider)
 
 
@@ -713,6 +829,266 @@ def generate_full_plot(
     return data
 
 
+def _format_world_settings(project: Project) -> str:
+    """WorldSetting一覧を、プロンプトに埋め込む簡潔なテキストに整形する（複数の生成関数で共用）"""
+    if not project.world_settings:
+        return "（未設定）"
+    return "\n".join(f"- {w.name}: {w.world_view or ''}" for w in project.world_settings)
+
+
+def _resolve_fixed_role_hints(case: MysteryCase, project: Project) -> str:
+    """Phase1でユーザーが指定した「固定配役の希望」(fixed_role_hints_json)を、
+    キャラクターIDだけでなく実名を含む人間可読なテキストに整形する。
+    """
+    import json
+
+    try:
+        hints = json.loads(case.fixed_role_hints_json or "[]")
+    except (json.JSONDecodeError, TypeError):
+        hints = []
+    if not hints:
+        return "（特になし。すべての役割をこのAIが自由に設計してよい）"
+
+    character_lookup = {c.id: c for c in project.characters}
+    lines = []
+    for hint in hints:
+        if not isinstance(hint, dict):
+            continue
+        character = character_lookup.get(hint.get("character_id"))
+        name = character.name if character else "（不明なキャラクター）"
+        lines.append(f"- role: {hint.get('role')} → {name}")
+    return "\n".join(lines) if lines else "（特になし）"
+
+
+def build_trick_prompt(case: MysteryCase, project: Project) -> str:
+    """事件のトリック（真相）・矛盾セット・抽象配役表をAIに考えさせるプロンプトを組み立てる（Phase 2）。
+
+    この時点のrequired_castは抽象状態（名前を持たない役割の集合）。
+    実際のキャラクターへの割り当ては、この後の配役ステップ（Phase 2.5）で行う。
+    """
+    lines = [
+        "あなたは本格ミステリーのトリック設計専門AIです。",
+        "以下の制約を守り、JSON形式のみでトリック構造を出力してください（前置き・Markdown装飾は禁止）。",
+        "",
+        "# 制約",
+        "1. 超自然現象・SF的ガジェット・偶然任せのトリックは禁止（ノックスの十戒に準拠）。",
+        "2. プレイヤーが証言と証拠品を突きつけて破綻させられる、明確な矛盾(contradiction_set)を"
+        "必ず1つ以上作ること。",
+        "3. プレイヤーを別人物へ誘導するミスディレクションを最低1つ含めること。",
+        "4. 「禁止事項・既知の事実」に反する設定を作らないこと。",
+        "",
+        f"# 作品タイトル: {project.title}",
+        f"# ジャンル: {project.genre or '未設定'}",
+        f"# 世界観\n{_format_world_settings(project)}",
+    ]
+    if case.case_world_setting:
+        lines.append(f"\n# この事件固有の舞台設定（補足）\n{case.case_world_setting}")
+
+    if project.constraints:
+        lines.append(f"\n# 禁止事項・既知の事実（最優先で厳守すること）\n{project.constraints}")
+
+    lines.append(f"\n# オチ（絶対条件。この結末に矛盾なく到達するトリックを設計すること）\n{case.climax_twist}")
+    lines.append(
+        "\n# 固定配役の希望（指定があれば必ずその役割で使うこと。指定がない役割は自由に設計してよい）\n"
+        f"{_resolve_fixed_role_hints(case, project)}"
+    )
+
+    lines.append(
+        "\n# 出力JSONスキーマ\n"
+        "{\n"
+        '  "trick_type": "string",\n'
+        '  "true_mechanism": "string（真相の仕組み。秘匿情報）",\n'
+        '  "misdirection": "string",\n'
+        '  "contradiction_set": {\n'
+        '    "witness_statement": "string",\n'
+        '    "evidence_fact": "string",\n'
+        '    "key_evidence": "string"\n'
+        "  },\n"
+        '  "required_cast": [\n'
+        "    {\n"
+        '      "role_key": "string（例: witness_1）",\n'
+        '      "role_type": "detective|victim|culprit|suspect|witness|accomplice|other",\n'
+        '      "public_trait": "string（この役割に求められる表面的な特徴。配役の判断材料）",\n'
+        '      "necessity_reason": "string（トリック上、なぜこの役割が何人必要なのかの理由）"\n'
+        "    }\n"
+        "  ]\n"
+        "}\n"
+        "固定配役の希望で指定された役割は required_cast にも含め、role_key を対応させること。"
+        "それ以外の役割は、トリックの成立に本当に必要な人数だけを過不足なく設計すること"
+        "（矛盾セットの成立に不要な役割を水増ししない）。"
+    )
+    return "\n".join(lines)
+
+
+def generate_trick(case: MysteryCase, project: Project, provider: str = "") -> dict:
+    """トリック（真相）・矛盾セット・抽象配役表をAIに生成させ、パース済みの辞書を返す（Phase 2）。
+
+    戻り値はまだDBに保存しない（既存の「生成→プレビュー→選択保存」パターンに合わせ、
+    確定保存はルート側の generate-trick/confirm で行う）。
+    """
+    prompt = build_trick_prompt(case, project)
+    raw_text = _dispatch(prompt, provider)
+    data = _parse_json_object(raw_text)
+
+    if not isinstance(data.get("contradiction_set"), dict):
+        data["contradiction_set"] = {}
+    if not isinstance(data.get("required_cast"), list):
+        data["required_cast"] = []
+    return data
+
+
+def _resolve_cast_list(case: MysteryCase, project: Project) -> list[dict]:
+    """required_cast_json（配役結果を含む）を、実際のCharacterの実名・特徴に解決する。
+
+    assigned_character_idは、通常のメインキャスト（project.characters）と
+    この事件専用のモブキャラ（case.mob_characters）のどちらも参照しうる。
+    """
+    import json
+
+    try:
+        required_cast = json.loads(case.required_cast_json or "[]")
+    except (json.JSONDecodeError, TypeError):
+        required_cast = []
+
+    character_lookup = {c.id: c for c in project.characters}
+    character_lookup.update({c.id: c for c in case.mob_characters})
+
+    resolved = []
+    for entry in required_cast:
+        if not isinstance(entry, dict):
+            continue
+        character = character_lookup.get(entry.get("assigned_character_id"))
+        resolved.append(
+            {
+                "role_key": entry.get("role_key"),
+                "role_type": entry.get("role_type"),
+                "public_trait": entry.get("public_trait"),
+                "character_name": character.name if character else "（未配役）",
+                "character_personality": character.personality if character else "",
+            }
+        )
+    return resolved
+
+
+def build_environment_prompt(case: MysteryCase, project: Project, resolved_cast: list[dict]) -> str:
+    """配役済み（Phase 2.5完了後）の実名一覧をもとに、矛盾のない現場データ（タイムライン・
+    場所・天候・小道具）を実名でAIに生成させるプロンプトを組み立てる（Phase 3）。
+
+    trick_json（真相を含む）はここで初めてAIに渡すが、生成対象はあくまで客観的な現場データであり、
+    真相そのものを本編の地の文プロンプトへそのまま横流ししないことは呼び出し側の責務
+    （app/routes/mystery.py・build_prompt()側で担保する。詳細はCLAUDE.md「8.」「9.」）。
+    """
+    cast_lines = [
+        f"- {c['role_key']}（{c['role_type']}）: {c['character_name']} / {c['public_trait'] or ''}"
+        for c in resolved_cast
+    ]
+    cast_text = "\n".join(cast_lines) if cast_lines else "（配役情報なし）"
+
+    lines = [
+        "あなたは本格ミステリーの現場状況・小道具設計専門AIです。",
+        "以下の真相（トリック）と、配役が確定した登場人物の実名一覧をもとに、矛盾のない現場の",
+        "タイムライン・場所・天候・小道具をJSON形式のみで出力してください（前置き・Markdown装飾は",
+        "禁止。抽象的な役割名ではなく実名で描写すること）。",
+        "",
+        f"# 世界観\n{_format_world_settings(project)}\n{case.case_world_setting or ''}",
+    ]
+    if project.constraints:
+        lines.append(f"\n# 禁止事項・既知の事実（最優先で厳守すること）\n{project.constraints}")
+
+    lines.append(
+        "\n# 真相（トリック。矛盾なく現場データに反映すること。プレイヤーには開示しない前提で"
+        f"設計してよい）\n{case.trick_json or ''}"
+    )
+    lines.append(f"\n# 配役済みの登場人物一覧（この実名を使って描写すること）\n{cast_text}")
+    lines.append(
+        "\n# 出力JSONスキーマ\n"
+        "{\n"
+        '  "timeline": [{"time": "string", "location": "string", "event": "string", '
+        '"characters": ["string", ...]}, ...],\n'
+        '  "location": [{"name": "string", "description": "string"}, ...],\n'
+        '  "weather": "string",\n'
+        '  "items": [{"name": "string", "description": "string", "location_found": "string"}, ...],\n'
+        '  "additional_required_cast": [{"role_key": "string", "role_type": '
+        '"witness|accomplice|other", "public_trait": "string", "necessity_reason": "string"}]\n'
+        "}\n"
+        "additional_required_castは、この現場データを作る中で新たに必要だと判明した役割がある"
+        "場合のみ含めること（例：見張り役がもう1人必要、等）。不要な場合は空配列にすること。"
+    )
+    return "\n".join(lines)
+
+
+def generate_environment(case: MysteryCase, project: Project, provider: str = "") -> dict:
+    """配役済みの実名一覧をもとに、現場データ（timeline/location/weather/items）を生成する（Phase 3）。
+
+    追加の役割が必要と判明した場合はadditional_required_castに含まれる
+    （ルート側でrequired_cast_jsonへの追記・cast_statusの差し戻しに使う）。
+    """
+    resolved_cast = _resolve_cast_list(case, project)
+    prompt = build_environment_prompt(case, project, resolved_cast)
+    raw_text = _dispatch(prompt, provider)
+    data = _parse_json_object(raw_text)
+
+    for key in ("timeline", "location", "items", "additional_required_cast"):
+        if not isinstance(data.get(key), list):
+            data[key] = []
+    data.setdefault("weather", "")
+    return data
+
+
+def build_evaluation_prompt(case: MysteryCase, target_text: str, source_label: str) -> str:
+    """正解データ（trick_json・environment_json）と実際の本文/尋問ログを比較させ、
+    矛盾やプレイアビリティを評価させるプロンプトを組み立てる（Phase 5）。
+    """
+    return (
+        "あなたはゲームシナリオの監修者・クオリティアナライザーAIです。\n"
+        "【正解の設定データ】と【実際の本文/ログ】を比較し、JSON形式で評価してください。\n"
+        "\n"
+        "【正解の設定データ（外部に漏らしてはいけない真相を含む）】\n"
+        f"trick: {case.trick_json or ''}\n"
+        f"environment: {case.environment_json or ''}\n"
+        "\n"
+        f"【検証対象（{source_label}）】\n"
+        f"{target_text}\n"
+        "\n"
+        "【検証項目】\n"
+        "1. logical_flaws: キャラが知るはずのない情報を話していないか。タイムライン・天候との矛盾。\n"
+        "2. contradiction_playability: 探偵役が提示証拠で嘘を論破できる構成になっているか。\n"
+        "3. narrative_quality: ドラマ性（自然な言い逃れ、駆け引き）。\n"
+        "\n"
+        "【出力JSONスキーマ】\n"
+        "{\n"
+        '  "overall_grade": "S|A|B|C",\n'
+        '  "logical_flaws": [{"description": "string", "location_hint": "string", '
+        '"suggestion": "string"}],\n'
+        '  "contradiction_playability": "string",\n'
+        '  "narrative_quality": "string",\n'
+        '  "notable_excerpts": ["string"]\n'
+        "}\n"
+    )
+
+
+def generate_evaluation(
+    case: MysteryCase, target_text: str, source_label: str, provider: str = ""
+) -> dict:
+    """本文/尋問ログを正解データと突き合わせ、矛盾検出・評価結果を生成する（Phase 5）。
+
+    Phase 5はボタン起動の都度実行し、章生成のたびに自動実行はしない
+    （相関図キャッシュ更新方針と同じ「コスト意識」。CLAUDE.md「7.」参照）。
+    """
+    prompt = build_evaluation_prompt(case, target_text, source_label)
+    raw_text = _dispatch(prompt, provider)
+    data = _parse_json_object(raw_text)
+
+    if not isinstance(data.get("logical_flaws"), list):
+        data["logical_flaws"] = []
+    if not isinstance(data.get("notable_excerpts"), list):
+        data["notable_excerpts"] = []
+    data.setdefault("overall_grade", "")
+    data.setdefault("contradiction_playability", "")
+    data.setdefault("narrative_quality", "")
+    return data
+
+
 def _dispatch(prompt: str, provider: str = "") -> str:
     """指定（または既定）のプロバイダにプロンプトを送信し、生テキストを返す共通処理。"""
     provider = (provider or current_app.config.get("DEFAULT_AI_PROVIDER", "gemini")).lower()
@@ -756,6 +1132,24 @@ def _parse_json_array(text: str) -> list[dict]:
     if not isinstance(data, list):
         raise AIGenerationError("AIの応答がJSON配列ではありませんでした。")
     return data
+
+
+def _load_json_dict_or_none(text: str):
+    """DBに保存済みのJSON文字列を辞書として読み込む（章生成プロンプトへの任意注入用）。
+
+    AIの生応答を厳格にパースする_parse_json_objectとは異なり、こちらは既に一度保存された
+    データを読み込むだけなので、壊れていた場合は例外を送出せずNoneを返す
+    （章生成そのものを止めないため）。
+    """
+    import json
+
+    if not text:
+        return None
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _parse_json_object(text: str) -> dict:

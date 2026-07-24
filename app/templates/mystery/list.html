@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}事件管理 - {{ project.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item active">事件管理</li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">事件一覧（ミステリー・トリック生成モジュール）</h1>
+  <a href="{{ url_for('mystery.create', project_id=project.id) }}" class="btn btn-primary">＋新規事件</a>
+</div>
+
+<table class="table table-hover bg-white align-middle">
+  <thead>
+    <tr>
+      <th>事件名</th>
+      <th>状態</th>
+      <th>配役</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in cases %}
+    <tr>
+      <td><a href="{{ url_for('mystery.detail', project_id=project.id, case_id=c.id) }}">{{ c.title }}</a></td>
+      <td><span class="badge bg-secondary">{{ c.status }}</span></td>
+      <td><span class="badge bg-light text-dark border">{{ c.cast_status }}</span></td>
+      <td class="text-end">
+        <a href="{{ url_for('mystery.detail', project_id=project.id, case_id=c.id) }}" class="btn btn-sm btn-outline-secondary">詳細</a>
+        <form action="{{ url_for('mystery.delete', project_id=project.id, case_id=c.id) }}" method="post" class="d-inline" onsubmit="return confirm('この事件を削除します。事件専用のモブキャラも合わせて削除されます。元に戻せません。よろしいですか？');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-outline-danger">削除</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="text-muted text-center py-4">事件が登録されていません。</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

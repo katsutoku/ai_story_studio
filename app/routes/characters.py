@@ -79,7 +79,14 @@ def _find_duplicate_character(project_id, name, exclude_id=None):
 @characters_bp.route("/")
 def list_characters(project_id):
     project = _get_project_or_404(project_id)
-    characters = Character.query.filter_by(project_id=project.id).order_by(Character.id).all()
+    # 事件専用のモブキャラ（Character.mystery_case_idが設定されているもの）は、
+    # メインのキャラクター管理一覧には出さない（事件詳細画面から管理する）
+    characters = (
+        Character.query.filter_by(project_id=project.id)
+        .filter(Character.mystery_case_id.is_(None))
+        .order_by(Character.id)
+        .all()
+    )
     return render_template("characters/list.html", project=project, characters=characters)
 
 
