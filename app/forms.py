@@ -190,6 +190,42 @@ class ChapterReviseForm(FlaskForm):
     )
 
 
+class InterrogationGenerateForm(FlaskForm):
+    """AI尋問シナリオ生成フォーム（探偵役・容疑者役の独立セッション方式）"""
+
+    detective_name = StringField(
+        "探偵役の名前", validators=[DataRequired(message="探偵役の名前は必須です。"), Length(max=100)]
+    )
+    suspect_name = StringField(
+        "容疑者役の名前", validators=[DataRequired(message="容疑者役の名前は必須です。"), Length(max=100)]
+    )
+    public_context = TextAreaField(
+        "公開情報（探偵と容疑者、双方が知っている事件の概要）",
+        validators=[Optional()],
+        description="例：〇〇邸で被害者Aが刺殺された。凶器のナイフが現場から見つかっている。容疑者は事件当夜、邸内にいたと証言している。",
+    )
+    suspect_secret = TextAreaField(
+        "容疑者だけが知っている秘密（DBには保存されません。生成のたびに入力してください）",
+        validators=[DataRequired(message="容疑者の秘密は必須です。")],
+        description="例：本当は被害者と口論していたが、それを隠すため別の場所にいたと嘘をついている。凶器には触れていない。",
+    )
+    turn_count = IntegerField(
+        "ターン数（探偵の発言1回＋容疑者の返答1回で1ターン）",
+        default=10,
+        validators=[DataRequired(message="ターン数は必須です。"), NumberRange(min=3, max=20, message="3〜20ターンの範囲で指定してください。")],
+    )
+    provider = SelectField(
+        "利用するAI",
+        choices=[
+            ("gemini", "Gemini（Google）"),
+            ("openai", "ChatGPT（OpenAI）"),
+            ("claude", "Claude（Anthropic）"),
+            ("ollama", "Ollama（ローカル実行）"),
+        ],
+        validators=[DataRequired()],
+    )
+
+
 class GenerateChapterForm(FlaskForm):
     """AI章生成フォーム"""
 

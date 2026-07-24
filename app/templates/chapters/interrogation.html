@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}尋問シナリオを生成 - 第{{ chapter.chapter_number }}章{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('chapters.list_chapters', project_id=project.id) }}">章管理</a></li>
+    <li class="breadcrumb-item active">尋問シナリオを生成</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-1">第{{ chapter.chapter_number }}章：{{ chapter.title }}</h1>
+<p class="text-muted">
+  探偵役と容疑者役、それぞれ独立したAI呼び出しでセリフを1ターンずつ交互に生成します。
+  探偵役には事件の真相（禁止事項・既知の事実欄）を渡さないため、最初から答えを知っているような
+  発言にはなりません。容疑者の秘密はこの画面でその都度入力する一時的な情報で、<strong>DBには保存されません</strong>。
+</p>
+
+<form method="post" class="bg-white p-4 rounded shadow-sm ai-generate-form" novalidate>
+  {{ form.hidden_tag() }}
+
+  <div class="row">
+    <div class="col-md-6 mb-3">
+      {{ form.detective_name.label(class="form-label") }}
+      {{ form.detective_name(class="form-control" + (" is-invalid" if form.detective_name.errors else "")) }}
+      {% for error in form.detective_name.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-6 mb-3">
+      {{ form.suspect_name.label(class="form-label") }}
+      {{ form.suspect_name(class="form-control" + (" is-invalid" if form.suspect_name.errors else "")) }}
+      {% for error in form.suspect_name.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    </div>
+  </div>
+
+  <div class="mb-3">
+    {{ form.public_context.label(class="form-label") }}
+    {{ form.public_context(class="form-control", rows=4, placeholder="例：〇〇邸で被害者Aが刺殺された。凶器のナイフが現場から見つかっている。容疑者は事件当夜、邸内にいたと証言している。") }}
+    {% if form.public_context.description %}<div class="form-text">{{ form.public_context.description }}</div>{% endif %}
+  </div>
+
+  <div class="mb-3">
+    {{ form.suspect_secret.label(class="form-label") }}
+    {{ form.suspect_secret(class="form-control" + (" is-invalid" if form.suspect_secret.errors else ""), rows=4, placeholder="例：本当は被害者と口論していたが、それを隠すため別の場所にいたと嘘をついている。凶器には触れていない。") }}
+    {% for error in form.suspect_secret.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    {% if form.suspect_secret.description %}<div class="form-text">{{ form.suspect_secret.description }}</div>{% endif %}
+  </div>
+
+  <div class="row">
+    <div class="col-md-4 mb-3">
+      {{ form.turn_count.label(class="form-label") }}
+      {{ form.turn_count(class="form-control" + (" is-invalid" if form.turn_count.errors else "")) }}
+      {% for error in form.turn_count.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="col-md-8 mb-3">
+      {{ form.provider.label(class="form-label") }}
+      {{ form.provider(class="form-select") }}
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-success" data-loading-text="探偵役と容疑者役を交互に呼び出しています。ターン数が多いほど時間がかかります…">生成する</button>
+  <a href="{{ url_for('chapters.list_chapters', project_id=project.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

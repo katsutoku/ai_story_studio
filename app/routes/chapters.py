@@ -2,9 +2,20 @@ from pathlib import Path
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 
-from ..ai_service import AIGenerationError, generate_chapter_content, revise_chapter_content
+from ..ai_service import (
+    AIGenerationError,
+    generate_chapter_content,
+    generate_interrogation,
+    revise_chapter_content,
+)
 from ..extensions import db
-from ..forms import ChapterContentForm, ChapterForm, ChapterReviseForm, GenerateChapterForm
+from ..forms import (
+    ChapterContentForm,
+    ChapterForm,
+    ChapterReviseForm,
+    GenerateChapterForm,
+    InterrogationGenerateForm,
+)
 from ..models import Chapter, Project
 
 chapters_bp = Blueprint("chapters", __name__, url_prefix="/projects/<int:project_id>/chapters")
@@ -381,4 +392,73 @@ def revise_confirm(project_id, chapter_id):
     db.session.commit()
 
     flash("修正後の本文を保存しました。", "success")
+    return redirect(url_for("chapters.edit_content", project_id=project.id, chapter_id=chapter.id))
+
+
+@chapters_bp.route("/<int:chapter_id>/interrogation", methods=["GET", "POST"])
+def interrogation(project_id, chapter_id):
+    """探偵役・容疑者役の独立セッション方式で、1本道の尋問シナリオを生成する"""
+    project = _get_project_or_404(project_id)
+    chapter = _get_chapter_or_404(project_id, chapter_id)
+
+    form = InterrogationGenerateForm()
+    if not form.is_submitted():
+        form.provider.data = current_app.config.get("DEFAULT_AI_PROVIDER", "gemini")
+
+    if form.validate_on_submit():
+        try:
+            transcript = generate_interrogation(
+                project,
+                detective_name=form.detective_name.data,
+                suspect_name=form.suspect_name.data,
+                suspect_secret=form.suspect_secret.data,
+                public_context=form.public_context.data or "",
+                total_turns=form.turn_count.data,
+                provider=form.provider.data,
+            )
+        except AIGenerationError as exc:
+            flash(f"尋問シナリオの生成に失敗しました: {exc}", "danger")
+            return render_template(
+                "chapters/interrogation.html", form=form, project=project, chapter=chapter
+            )
+
+        transcript = _normalize_newlines(transcript)
+        existing_content = _read_chapter_content(_chapter_md_path(project.id, chapter.id))
+
+        return render_template(
+            "chapters/interrogation_preview.html",
+            project=project,
+            chapter=chapter,
+            transcript=transcript,
+            existing_content=existing_content,
+        )
+
+    return render_template(
+        "chapters/interrogation.html", form=form, project=project, chapter=chapter
+    )
+
+
+@chapters_bp.route("/<int:chapter_id>/interrogation/confirm", methods=["POST"])
+def interrogation_confirm(project_id, chapter_id):
+    """尋問シナリオのプレビューで確認された内容を、章本文に反映する（上書き／追記を選択）"""
+    project = _get_project_or_404(project_id)
+    chapter = _get_chapter_or_404(project_id, chapter_id)
+
+    final_content = request.form.get("final_content", "")
+    if not final_content.strip():
+        flash("本文が空のため保存できませんでした。", "danger")
+        return redirect(url_for("chapters.interrogation", project_id=project.id, chapter_id=chapter.id))
+
+    md_path = _chapter_md_path(project.id, chapter.id)
+    try:
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(_normalize_newlines(final_content), encoding="utf-8")
+    except OSError as exc:
+        flash(f"本文の保存に失敗しました: {exc}", "danger")
+        return redirect(url_for("chapters.interrogation", project_id=project.id, chapter_id=chapter.id))
+
+    chapter.content_path = str(md_path)
+    db.session.commit()
+
+    flash("尋問シナリオを本文に反映しました。", "success")
     return redirect(url_for("chapters.edit_content", project_id=project.id, chapter_id=chapter.id))

@@ -54,6 +54,7 @@
         {% if ch.content_path %}
         <a href="{{ url_for('chapters.revise', project_id=project.id, chapter_id=ch.id) }}" class="btn btn-sm btn-outline-success">AIで部分修正</a>
         {% endif %}
+        <a href="{{ url_for('chapters.interrogation', project_id=project.id, chapter_id=ch.id) }}" class="btn btn-sm btn-outline-success">尋問シナリオ生成</a>
         <a href="{{ url_for('chapters.edit', project_id=project.id, chapter_id=ch.id) }}" class="btn btn-sm btn-outline-secondary">メタ情報編集</a>
         <form action="{{ url_for('chapters.delete', project_id=project.id, chapter_id=ch.id) }}" method="post" class="d-inline" onsubmit="return confirm('この章を削除してよろしいですか？');">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

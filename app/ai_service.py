@@ -175,6 +175,151 @@ def generate_chapter_content(
     return _dispatch(prompt, provider)
 
 
+def _format_transcript_line(speaker_name: str, line: str) -> str:
+    """1ターン分のセリフを、本文の書式規約（【名前】「セリフ」）に整形する"""
+    line = (line or "").strip()
+    # AIが誤って「」や【】を含めて返してきた場合に備え、素の発言部分だけを取り出す
+    line = line.strip("「」").strip()
+    return f"【{speaker_name}】「{line}」"
+
+
+def build_detective_turn_prompt(
+    project: Project,
+    detective_name: str,
+    suspect_name: str,
+    public_context: str,
+    transcript_text: str,
+    turn_number: int,
+    total_turns: int,
+) -> str:
+    """探偵役の1ターン分のセリフを生成するプロンプトを組み立てる。
+
+    重要：ここには project.constraints（真相・犯人などの秘密情報）を一切含めない。
+    探偵は「公開情報」と「これまでの会話」だけから、次の質問・指摘を考える。
+    これにより、探偵が最初から答えを知っている状態になることを防ぐ
+    （カンニング防止。設計判断として明示的に決定した制約）。
+    """
+    lines = [
+        "あなたは、ミステリー・推理ゲームのシナリオに登場する「探偵役」のキャラクターです。",
+        f"あなたの名前は「{detective_name}」です。今、容疑者「{suspect_name}」を尋問しています。",
+        "",
+        f"# 事件の公開情報（あなたが知っていること。これ以外の事実を勝手に決めつけないこと）\n{public_context or '（特に追加情報なし）'}",
+    ]
+    if transcript_text:
+        lines.append(f"\n# これまでの尋問のやり取り\n{transcript_text}")
+    else:
+        lines.append("\n# これまでの尋問のやり取り\n（まだ会話は始まっていません。これが最初の質問です）")
+
+    lines.append(
+        f"\n# 指示\n"
+        f"あなたは今{turn_number}ターン目（全{total_turns}ターン中）の発言をする番です。"
+        "公開情報とこれまでの会話だけを根拠に、鋭く、しかし決めつけすぎない質問・指摘を"
+        "1つだけ発言してください。あなたがまだ知らないはずの事実（容疑者の内心や、"
+        "公開情報に含まれていない事件の真相）を、知っているかのように話さないでください。\n"
+        "出力は発言内容のみとし、地の文・前置き・鉤括弧（「」）は付けずに、セリフの中身だけを"
+        "1〜2文で出力してください。"
+    )
+    return "\n".join(lines)
+
+
+def build_suspect_turn_prompt(
+    project: Project,
+    suspect_name: str,
+    suspect_secret: str,
+    public_context: str,
+    transcript_text: str,
+    detective_line: str,
+) -> str:
+    """容疑者役の1ターン分の返答を生成するプロンプトを組み立てる。
+
+    suspect_secret（この容疑者だけが知っている秘密：本当のアリバイ、隠したい動機など）は、
+    DBには保存せず、生成のたびに利用者が入力した内容をそのまま使う。
+    他の容疑者の秘密は一切渡さない（独立セッション方式）。
+    """
+    character = next(
+        (c for c in project.characters if c.name.strip() == suspect_name.strip()), None
+    )
+
+    lines = [
+        "あなたは、ミステリー・推理ゲームのシナリオに登場する「容疑者」のキャラクターです。",
+        f"あなたの名前は「{suspect_name}」です。今、探偵から尋問を受けています。",
+    ]
+    if character is not None:
+        lines.append(
+            f"あなたの性格: {character.personality or '未設定'} / "
+            f"背景: {character.background or '未設定'}"
+        )
+
+    lines.append(f"\n# あなただけが知っている秘密（絶対に他人には教えない情報）\n{suspect_secret}")
+    lines.append(f"\n# 事件の公開情報（探偵と共有している一般的な情報）\n{public_context or '（特に追加情報なし）'}")
+
+    if project.constraints:
+        lines.append(f"\n# 世界の既知の事実（矛盾しないよう意識すること）\n{project.constraints}")
+
+    if transcript_text:
+        lines.append(f"\n# これまでの尋問のやり取り\n{transcript_text}")
+
+    lines.append(
+        f"\n# 探偵の今の発言\n【{suspect_name}への質問】{detective_line}"
+    )
+    lines.append(
+        "\n# 指示\n"
+        "あなたの性格と、あなただけが知っている秘密を踏まえて、この質問に返答してください。"
+        "秘密を守ろうとして嘘をついたり、はぐらかしたり、動揺を見せたりしてよく、"
+        "逆に追い詰められて一部を認めることもあってよい。あなたの性格に合った反応にすること。\n"
+        "出力は発言内容のみとし、地の文・前置き・鉤括弧（「」）は付けずに、セリフの中身だけを"
+        "1〜2文で出力してください。"
+    )
+    return "\n".join(lines)
+
+
+def generate_interrogation(
+    project: Project,
+    detective_name: str,
+    suspect_name: str,
+    suspect_secret: str,
+    public_context: str = "",
+    total_turns: int = 10,
+    provider: str = "",
+) -> str:
+    """探偵AIと容疑者AIを交互に呼び出し、1本道の尋問シナリオを生成する。
+
+    探偵側のプロンプトには真相（project.constraints）を含めない。
+    容疑者側のプロンプトには、その容疑者専用の秘密（suspect_secret）と
+    project.constraintsのみを含め、他のキャラクターの秘密は一切渡さない
+    （独立セッション方式によるカンニング防止）。
+
+    戻り値は、本文の書式規約（【名前】「セリフ」）に整形済みのMarkdownテキスト。
+    """
+    if total_turns < 1:
+        raise AIGenerationError("ターン数は1以上を指定してください。")
+
+    transcript_lines: list[str] = []  # 表示用（整形済み）
+    formatted_lines: list[str] = []  # 最終的な本文として返す行
+
+    for turn in range(1, total_turns + 1):
+        transcript_text = "\n".join(transcript_lines)
+
+        detective_prompt = build_detective_turn_prompt(
+            project, detective_name, suspect_name, public_context,
+            transcript_text, turn, total_turns,
+        )
+        detective_line = _dispatch(detective_prompt, provider).strip()
+        transcript_lines.append(_format_transcript_line(detective_name, detective_line))
+        formatted_lines.append(_format_transcript_line(detective_name, detective_line))
+
+        transcript_text = "\n".join(transcript_lines)
+        suspect_prompt = build_suspect_turn_prompt(
+            project, suspect_name, suspect_secret, public_context,
+            transcript_text, detective_line,
+        )
+        suspect_line = _dispatch(suspect_prompt, provider).strip()
+        transcript_lines.append(_format_transcript_line(suspect_name, suspect_line))
+        formatted_lines.append(_format_transcript_line(suspect_name, suspect_line))
+
+    return "\n".join(formatted_lines)
+
+
 def build_revision_prompt(
     project: Project, chapter: Chapter, existing_content: str, revision_instructions: str
 ) -> str:

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}尋問シナリオの確認 - 第{{ chapter.chapter_number }}章{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('chapters.list_chapters', project_id=project.id) }}">章管理</a></li>
+    <li class="breadcrumb-item active">尋問シナリオの確認</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">生成された尋問シナリオ</h1>
+<p class="text-muted">まだファイルには保存されていません。章本文への反映方法を選び、内容を確認・編集してから保存してください。</p>
+
+<div class="card mb-4">
+  <div class="card-header">生成結果（プレビュー）</div>
+  <div class="card-body">
+    <pre class="mb-0" style="white-space: pre-wrap;">{{ transcript }}</pre>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('chapters.interrogation_confirm', project_id=project.id, chapter_id=chapter.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="mb-3">
+    <label class="form-label fw-bold">章本文への反映方法</label>
+    <div class="form-check">
+      <input class="form-check-input" type="radio" name="merge_mode" id="modeAppend" value="append" checked onclick="updateFinalContent()">
+      <label class="form-check-label" for="modeAppend">既存の本文の末尾に追記する</label>
+    </div>
+    <div class="form-check">
+      <input class="form-check-input" type="radio" name="merge_mode" id="modeOverwrite" value="overwrite" onclick="updateFinalContent()">
+      <label class="form-check-label" for="modeOverwrite">既存の本文を、この尋問シナリオで上書きする</label>
+    </div>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">章本文（編集可能）</label>
+    <textarea name="final_content" id="finalContent" class="form-control markdown-editor" rows="20"></textarea>
+  </div>
+
+  <button type="submit" class="btn btn-primary">この内容で保存する</button>
+  <a href="{{ url_for('chapters.interrogation', project_id=project.id, chapter_id=chapter.id) }}" class="btn btn-outline-secondary">やり直す</a>
+  <a href="{{ url_for('chapters.list_chapters', project_id=project.id) }}" class="btn btn-outline-secondary">破棄してキャンセル</a>
+</form>
+
+<script>
+  const existingContent = {{ existing_content | tojson }};
+  const transcriptText = {{ transcript | tojson }};
+
+  function updateFinalContent() {
+    const mode = document.querySelector('input[name="merge_mode"]:checked').value;
+    const textarea = document.getElementById("finalContent");
+    if (mode === "overwrite" || !existingContent) {
+      textarea.value = transcriptText;
+    } else {
+      textarea.value = existingContent.replace(/\s+$/, "") + "\n\n" + transcriptText;
+    }
+  }
+  updateFinalContent();
+</script>
+{% endblock %}
