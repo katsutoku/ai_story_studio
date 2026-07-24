@@ -15,11 +15,25 @@
     <span class="badge bg-secondary">状態：{{ case.status }}</span>
     <span class="badge bg-light text-dark border">配役：{{ case.cast_status }}</span>
   </div>
-  <form action="{{ url_for('mystery.delete', project_id=project.id, case_id=case.id) }}" method="post" onsubmit="return confirm('この事件を削除します。事件専用のモブキャラも合わせて削除されます。元に戻せません。よろしいですか？');">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button type="submit" class="btn btn-outline-danger">この事件を削除</button>
-  </form>
+  <div>
+    {% if case.status == "draft" %}
+    <a href="{{ url_for('mystery.auto_generate', project_id=project.id, case_id=case.id) }}" class="btn btn-success">AIにすべてお任せして生成する</a>
+    {% endif %}
+    <form action="{{ url_for('mystery.delete', project_id=project.id, case_id=case.id) }}" method="post" class="d-inline" onsubmit="return confirm('この事件を削除します。事件専用のモブキャラも合わせて削除されます。元に戻せません。よろしいですか？');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-outline-danger">この事件を削除</button>
+    </form>
+  </div>
 </div>
+
+{% if case.status == "draft" %}
+<p class="text-muted small">
+  「AIにすべてお任せして生成する」を使うと、トリック生成・配役（AIモブキャラの自動採用）・
+  環境生成をこの操作1回でまとめて実行できます。既存キャラクターを事件に関わらせたい場合は、
+  先にPhase1の「固定配役の希望」で指定してください（お任せモードでは、それ以外の役割は
+  すべて新規モブキャラになります）。
+</p>
+{% endif %}
 
 <div class="card mb-4">
   <div class="card-header">Phase1：構想</div>

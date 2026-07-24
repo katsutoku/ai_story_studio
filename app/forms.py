@@ -292,9 +292,12 @@ class MysteryCaseForm(FlaskForm):
         description="作品全体の世界設定とは別に、この事件だけで使う補足情報があれば入力してください。",
     )
     climax_twist = TextAreaField(
-        "オチ・絶対条件",
-        validators=[DataRequired(message="オチは必須です。")],
-        description="例：実は被害者は双子で、事件当夜に入れ替わっていた",
+        "オチ・絶対条件（任意）",
+        validators=[Optional()],
+        description=(
+            "例：実は被害者は双子で、事件当夜に入れ替わっていた。"
+            "空欄の場合、オチ自体もAIが考案します（トリック生成時に自動で決定されます）。"
+        ),
     )
     fixed_role_hints_text = TextAreaField(
         "固定配役の希望（任意）",

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}お任せモード - {{ case.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.list_cases', project_id=project.id) }}">事件管理</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}">{{ case.title }}</a></li>
+    <li class="breadcrumb-item active">お任せモード</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">お任せモード：トリック・配役・環境を一括生成</h1>
+<p class="text-muted">
+  Phase2（トリック生成）→ 配役 → Phase3（環境・小道具生成）を、この操作1回でまとめて実行します。
+  固定配役の希望がある役割はそのまま使い、それ以外の役割はすべてAIが生成したモブキャラを
+  自動的に採用します（既存キャラクターからの手動選択はしません）。<br>
+  途中で失敗した場合は何も保存されません。すべて成功すると、最後に内容をまとめて確認してから
+  保存できます。
+</p>
+
+<form method="post" class="bg-white p-4 rounded shadow-sm ai-generate-form" novalidate>
+  {{ form.hidden_tag() }}
+  <div class="mb-3">
+    {{ form.provider.label(class="form-label") }}
+    {{ form.provider(class="form-select") }}
+  </div>
+  <button type="submit" class="btn btn-success" data-loading-text="AIがトリック・配役・環境を一括生成しています。時間がかかる場合があります…">一括生成する</button>
+  <a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">キャンセル</a>
+</form>
+{% endblock %}

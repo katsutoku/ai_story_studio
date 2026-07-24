@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from flask import current_app
 
-from .models import Chapter, Foreshadowing, MysteryCase, Project
+from .models import Chapter, Character, Foreshadowing, MysteryCase, Project
 
 # UIのセレクトボックス等で使うプロバイダ一覧
 PROVIDER_CHOICES = [
@@ -887,7 +887,19 @@ def build_trick_prompt(case: MysteryCase, project: Project) -> str:
     if project.constraints:
         lines.append(f"\n# 禁止事項・既知の事実（最優先で厳守すること）\n{project.constraints}")
 
-    lines.append(f"\n# オチ（絶対条件。この結末に矛盾なく到達するトリックを設計すること）\n{case.climax_twist}")
+    if case.climax_twist and case.climax_twist.strip():
+        lines.append(
+            "\n# オチ（絶対条件。この結末に矛盾なく到達するトリックを設計すること）\n"
+            f"{case.climax_twist}"
+        )
+    else:
+        lines.append(
+            "\n# オチについて\n"
+            "オチ（事件の結末・意外性のある真相の要点）は指定されていません。"
+            "あなたがこの事件にふさわしいオチを自由に考案し、出力JSONの "
+            "generated_conclusion フィールドに、後から読み返しても分かるよう簡潔な文章"
+            "（1〜3文程度）で明記してください。"
+        )
     lines.append(
         "\n# 固定配役の希望（指定があれば必ずその役割で使うこと。指定がない役割は自由に設計してよい）\n"
         f"{_resolve_fixed_role_hints(case, project)}"
@@ -899,6 +911,8 @@ def build_trick_prompt(case: MysteryCase, project: Project) -> str:
         '  "trick_type": "string",\n'
         '  "true_mechanism": "string（真相の仕組み。秘匿情報）",\n'
         '  "misdirection": "string",\n'
+        '  "generated_conclusion": "string（オチが未指定だった場合のみ、あなたが考案したオチを'
+        "記載。オチが指定済みだった場合は空文字でよい）\",\n"
         '  "contradiction_set": {\n'
         '    "witness_statement": "string",\n'
         '    "evidence_fact": "string",\n'
@@ -934,7 +948,99 @@ def generate_trick(case: MysteryCase, project: Project, provider: str = "") -> d
         data["contradiction_set"] = {}
     if not isinstance(data.get("required_cast"), list):
         data["required_cast"] = []
+    if not isinstance(data.get("generated_conclusion"), str):
+        data["generated_conclusion"] = ""
     return data
+
+
+def auto_assign_cast(
+    case: MysteryCase, project: Project, required_cast: list[dict], provider: str = ""
+) -> tuple[list[dict], list[dict], list[Character]]:
+    """お任せモード専用：fixed_character_id（固定配役の希望に由来するもの）が設定されていない
+    役割すべてに、AI生成モブキャラを1件だけ生成して自動的に割り当てる。
+
+    既存のモブキャラ生成（cast_generate_mobルートが使うgenerate_characters）を候補数1で
+    呼び出す。DBへのCharacter保存はここでは行わない（お任せモードは「Phase2・配役・Phase3の
+    すべてが成功し、一括プレビューでユーザーが確定したタイミングでまとめて保存する」という
+    設計のため。呼び出し側でPhase3成功後にdb.session.add_all() → flush()して確定する）。
+
+    戻り値は (更新後のrequired_cast, 環境生成プロンプト用に解決済みのcast一覧,
+    未保存のCharacterインスタンス一覧)。
+
+    名前が既存キャラクター・今回生成した他のモブキャラと重複した場合はAIGenerationErrorを
+    送出する（何もDBに保存していない時点でのエラーなので、呼び出し側は安全に中断できる）。
+    """
+    fixed_lookup = {c.id: c for c in project.characters}
+    fixed_lookup.update({c.id: c for c in case.mob_characters})
+
+    existing_names = {c.name.strip().lower() for c in project.characters}
+
+    updated_cast: list[dict] = []
+    resolved_cast: list[dict] = []
+    pending_characters: list[Character] = []
+
+    for original_entry in required_cast:
+        entry = dict(original_entry)
+        fixed_id = entry.get("fixed_character_id") or entry.get("assigned_character_id")
+        if fixed_id:
+            character = fixed_lookup.get(fixed_id)
+            entry["assigned_character_id"] = fixed_id
+            updated_cast.append(entry)
+            resolved_cast.append(
+                {
+                    "role_key": entry.get("role_key"),
+                    "role_type": entry.get("role_type"),
+                    "public_trait": entry.get("public_trait"),
+                    "character_name": character.name if character else "（不明なキャラクター）",
+                    "character_personality": character.personality if character else "",
+                }
+            )
+            continue
+
+        notes = (
+            f"この事件専用のモブキャラクターを考えてください。役割: {entry.get('role_type')}。"
+            f"求められる特徴: {entry.get('public_trait') or '（特になし）'}"
+        )
+        candidates = generate_characters(project, count=1, additional_notes=notes, provider=provider)
+        if not candidates:
+            raise AIGenerationError(f"役割「{entry.get('role_key')}」のモブキャラ生成に失敗しました。")
+
+        candidate = candidates[0]
+        name = str(candidate.get("name") or "").strip()
+        if not name:
+            raise AIGenerationError(f"役割「{entry.get('role_key')}」のモブキャラの名前が空でした。")
+        if name.lower() in existing_names:
+            raise AIGenerationError(
+                f"役割「{entry.get('role_key')}」用に生成された「{name}」は、既存または他の役割の"
+                "候補と名前が重複しています。個別の配役画面からやり直してください。"
+            )
+        existing_names.add(name.lower())
+
+        character = Character(
+            project_id=project.id,
+            mystery_case_id=case.id,
+            name=name[:100],
+            age=str(candidate.get("age") or "")[:20] or None,
+            gender=str(candidate.get("gender") or "")[:20] or None,
+            personality=candidate.get("personality") or None,
+            appearance=candidate.get("appearance") or None,
+            background=candidate.get("background") or None,
+            notes=candidate.get("notes") or None,
+        )
+        pending_characters.append(character)
+        entry["_pending_character_index"] = len(pending_characters) - 1
+        updated_cast.append(entry)
+        resolved_cast.append(
+            {
+                "role_key": entry.get("role_key"),
+                "role_type": entry.get("role_type"),
+                "public_trait": entry.get("public_trait"),
+                "character_name": character.name,
+                "character_personality": character.personality or "",
+            }
+        )
+
+    return updated_cast, resolved_cast, pending_characters
 
 
 def _resolve_cast_list(case: MysteryCase, project: Project) -> list[dict]:
@@ -1017,13 +1123,21 @@ def build_environment_prompt(case: MysteryCase, project: Project, resolved_cast:
     return "\n".join(lines)
 
 
-def generate_environment(case: MysteryCase, project: Project, provider: str = "") -> dict:
+def generate_environment(
+    case: MysteryCase, project: Project, provider: str = "", resolved_cast: list[dict] | None = None
+) -> dict:
     """配役済みの実名一覧をもとに、現場データ（timeline/location/weather/items）を生成する（Phase 3）。
 
     追加の役割が必要と判明した場合はadditional_required_castに含まれる
     （ルート側でrequired_cast_jsonへの追記・cast_statusの差し戻しに使う）。
+
+    resolved_cast: 通常はNoneのまま呼び出し、case.required_cast_json（DB保存済み）を
+        _resolve_cast_list()で解決する。お任せモード（auto_assign_cast）のように、
+        配役結果がまだDBに保存されていない（Character未コミット）場合は、呼び出し側で
+        解決済みのcast一覧を直接渡す。
     """
-    resolved_cast = _resolve_cast_list(case, project)
+    if resolved_cast is None:
+        resolved_cast = _resolve_cast_list(case, project)
     prompt = build_environment_prompt(case, project, resolved_cast)
     raw_text = _dispatch(prompt, provider)
     data = _parse_json_object(raw_text)

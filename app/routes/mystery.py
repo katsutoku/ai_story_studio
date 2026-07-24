@@ -5,6 +5,7 @@ from flask import Blueprint, abort, current_app, flash, redirect, render_templat
 
 from ..ai_service import (
     AIGenerationError,
+    auto_assign_cast,
     generate_characters,
     generate_environment,
     generate_evaluation,
@@ -336,6 +337,12 @@ def generate_trick_confirm(project_id, case_id):
     fixed_hints = _load_json_list(case.fixed_role_hints_json)
     required_cast = _merge_fixed_hints_into_cast(required_cast, fixed_hints)
 
+    # オチが未入力だった場合のみ、AIが考案したオチ（generated_conclusion）をclimax_twistへ書き戻す
+    if not case.climax_twist or not case.climax_twist.strip():
+        generated_conclusion = str(trick_data.get("generated_conclusion") or "").strip()
+        if generated_conclusion:
+            case.climax_twist = generated_conclusion
+
     case.trick_json = json.dumps(
         {
             "trick_type": trick_data.get("trick_type", ""),
@@ -352,6 +359,185 @@ def generate_trick_confirm(project_id, case_id):
 
     flash("トリックを保存しました。続けて配役を行ってください。", "success")
     return redirect(url_for("mystery.cast", project_id=project.id, case_id=case.id))
+
+
+@mystery_bp.route("/<int:case_id>/auto-generate", methods=["GET", "POST"])
+def auto_generate(project_id, case_id):
+    """お任せモード：Phase2（トリック）→Phase2.5（配役）→Phase3（環境）を1回の操作で一括生成する。
+
+    固定配役の希望以外の役割は、すべてAI生成のモブキャラを1件だけ自動採用する（既存キャラからの
+    手動選択は行わない）。DB書き込みは、すべてのフェーズが成功し一括プレビューで確定した時点で
+    まとめて行う（途中経過は残さない）。draft状態の事件にのみ使用できる。
+    """
+    project = _get_project_or_404(project_id)
+    case = _get_case_or_404(project_id, case_id)
+
+    if case.status != MysteryCase.STATUS_DRAFT:
+        flash("すでにトリック生成以降が進んでいる事件には、お任せモードは使用できません。", "danger")
+        return redirect(url_for("mystery.detail", project_id=project.id, case_id=case.id))
+
+    form = MysteryGenerateWithProviderForm()
+    if not form.is_submitted():
+        form.provider.data = current_app.config.get("DEFAULT_AI_PROVIDER", "gemini")
+
+    if form.validate_on_submit():
+        provider = form.provider.data
+
+        try:
+            trick_data = generate_trick(case, project, provider=provider)
+        except AIGenerationError as exc:
+            flash(f"トリックの生成に失敗しました: {exc}", "danger")
+            return render_template("mystery/auto_generate.html", form=form, project=project, case=case)
+
+        required_cast = trick_data.get("required_cast")
+        required_cast = required_cast if isinstance(required_cast, list) else []
+        fixed_hints = _load_json_list(case.fixed_role_hints_json)
+        required_cast = _merge_fixed_hints_into_cast(required_cast, fixed_hints)
+
+        try:
+            updated_cast, resolved_cast, pending_characters = auto_assign_cast(
+                case, project, required_cast, provider=provider
+            )
+        except AIGenerationError as exc:
+            flash(
+                f"配役（AIモブキャラ生成）に失敗しました: {exc} "
+                "トリックの生成はまだ保存されていません。もう一度お試しになるか、"
+                "個別のフローでやり直してください。",
+                "danger",
+            )
+            return render_template("mystery/auto_generate.html", form=form, project=project, case=case)
+
+        try:
+            environment_data = generate_environment(
+                case, project, provider=provider, resolved_cast=resolved_cast
+            )
+        except AIGenerationError as exc:
+            flash(
+                f"環境・小道具の生成に失敗しました: {exc} "
+                "ここまでの生成結果はまだ保存されていません。もう一度お試しください。",
+                "danger",
+            )
+            return render_template("mystery/auto_generate.html", form=form, project=project, case=case)
+
+        preview_payload = {
+            "trick_data": trick_data,
+            "required_cast": updated_cast,
+            "pending_characters": [
+                {
+                    "name": c.name,
+                    "age": c.age,
+                    "gender": c.gender,
+                    "personality": c.personality,
+                    "appearance": c.appearance,
+                    "background": c.background,
+                    "notes": c.notes,
+                }
+                for c in pending_characters
+            ],
+            "environment_data": environment_data,
+        }
+        generated_json = json.dumps(preview_payload, ensure_ascii=False)
+
+        return render_template(
+            "mystery/auto_generate_preview.html",
+            project=project,
+            case=case,
+            trick=trick_data,
+            required_cast=updated_cast,
+            pending_characters=pending_characters,
+            environment=environment_data,
+            generated_json=generated_json,
+        )
+
+    return render_template("mystery/auto_generate.html", form=form, project=project, case=case)
+
+
+@mystery_bp.route("/<int:case_id>/auto-generate/confirm", methods=["POST"])
+def auto_generate_confirm(project_id, case_id):
+    """お任せモード確定：トリック・配役（新規モブキャラの保存込み）・環境をまとめて保存する"""
+    project = _get_project_or_404(project_id)
+    case = _get_case_or_404(project_id, case_id)
+
+    generated_json = request.form.get("generated_json", "")
+    try:
+        payload = json.loads(generated_json)
+    except (json.JSONDecodeError, TypeError):
+        flash("生成結果の読み込みに失敗しました。もう一度生成し直してください。", "danger")
+        return redirect(url_for("mystery.auto_generate", project_id=project.id, case_id=case.id))
+
+    trick_data = payload.get("trick_data") or {}
+    required_cast = payload.get("required_cast") or []
+    pending_characters_data = payload.get("pending_characters") or []
+    environment_data = payload.get("environment_data") or {}
+
+    # オチが未入力だった場合のみ、AIが考案したオチをclimax_twistへ書き戻す（Phase2確定と同じ処理）
+    if not case.climax_twist or not case.climax_twist.strip():
+        generated_conclusion = str(trick_data.get("generated_conclusion") or "").strip()
+        if generated_conclusion:
+            case.climax_twist = generated_conclusion
+
+    case.trick_json = json.dumps(
+        {
+            "trick_type": trick_data.get("trick_type", ""),
+            "true_mechanism": trick_data.get("true_mechanism", ""),
+            "misdirection": trick_data.get("misdirection", ""),
+            "contradiction_set": trick_data.get("contradiction_set", {}),
+        },
+        ensure_ascii=False,
+    )
+
+    # 新規モブキャラをまとめて保存し、idを確定させてからrequired_castに反映する
+    new_characters = []
+    for c_data in pending_characters_data:
+        if not isinstance(c_data, dict):
+            continue
+        character = Character(
+            project_id=project.id,
+            mystery_case_id=case.id,
+            name=str(c_data.get("name") or "")[:100],
+            age=str(c_data.get("age") or "")[:20] or None,
+            gender=str(c_data.get("gender") or "")[:20] or None,
+            personality=c_data.get("personality") or None,
+            appearance=c_data.get("appearance") or None,
+            background=c_data.get("background") or None,
+            notes=c_data.get("notes") or None,
+        )
+        db.session.add(character)
+        new_characters.append(character)
+    db.session.flush()  # assigned_character_idに使うためIDを確定させる
+
+    for entry in required_cast:
+        if not isinstance(entry, dict):
+            continue
+        pending_index = entry.pop("_pending_character_index", None)
+        if pending_index is not None and 0 <= pending_index < len(new_characters):
+            entry["assigned_character_id"] = new_characters[pending_index].id
+
+    case.required_cast_json = json.dumps(required_cast, ensure_ascii=False)
+    case.environment_json = json.dumps(
+        {
+            "timeline": environment_data.get("timeline", []),
+            "location": environment_data.get("location", []),
+            "weather": environment_data.get("weather", ""),
+            "items": environment_data.get("items", []),
+        },
+        ensure_ascii=False,
+    )
+    case.cast_status = MysteryCase.CAST_STATUS_COMPLETE
+    case.status = MysteryCase.STATUS_ENVIRONMENT_READY
+    db.session.commit()
+
+    additional_required_cast = environment_data.get("additional_required_cast") or []
+    if additional_required_cast:
+        flash(
+            "お任せモードで、トリック・配役・環境をまとめて生成しました。"
+            "ただし環境生成の過程で追加の役割が必要と示唆されました。この役割は自動反映されて"
+            "いないため、必要であれば配役画面から手動で追加・再生成してください。",
+            "warning",
+        )
+    else:
+        flash("お任せモードで、トリック・配役・環境をまとめて生成しました。", "success")
+    return redirect(url_for("mystery.detail", project_id=project.id, case_id=case.id))
 
 
 @mystery_bp.route("/<int:case_id>/cast")

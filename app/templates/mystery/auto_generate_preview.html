@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}お任せモード生成結果の確認 - {{ case.title }}{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for('projects.detail', project_id=project.id) }}">{{ project.title }}</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.list_cases', project_id=project.id) }}">事件管理</a></li>
+    <li class="breadcrumb-item"><a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}">{{ case.title }}</a></li>
+    <li class="breadcrumb-item active">お任せモード生成結果の確認</li>
+  </ol>
+</nav>
+
+<h1 class="h3 mb-3">お任せモードの生成結果の確認</h1>
+<p class="text-muted">
+  まだ何も保存されていません。内容を確認し、問題なければ「この内容で保存する」を押してください。
+  自動生成されたモブキャラは、保存時にこの事件専用のキャラクターとしてまとめて登録されます。
+</p>
+
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>トリック（真相）</span>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleSpoiler()">
+      <span id="spoilerToggleLabel">ネタバレを表示する</span>
+    </button>
+  </div>
+  <div class="card-body">
+    <div id="spoilerContent" class="d-none">
+      <p class="mb-1"><strong>トリックタイプ：</strong>{{ trick.get("trick_type", "") }}</p>
+      <p class="mb-1"><strong>真相の仕組み：</strong>{{ trick.get("true_mechanism", "") }}</p>
+      <p class="mb-1"><strong>ミスディレクション：</strong>{{ trick.get("misdirection", "") }}</p>
+      {% if trick.get("generated_conclusion") %}
+      <p class="mb-1"><strong>AIが考案したオチ：</strong>{{ trick.get("generated_conclusion", "") }}</p>
+      {% endif %}
+      {% set cs = trick.get("contradiction_set", {}) %}
+      <p class="mb-1"><strong>容疑者の証言：</strong>{{ cs.get("witness_statement", "") }}</p>
+      <p class="mb-1"><strong>客観的事実：</strong>{{ cs.get("evidence_fact", "") }}</p>
+      <p class="mb-0"><strong>決め手となる証拠：</strong>{{ cs.get("key_evidence", "") }}</p>
+    </div>
+    <p id="spoilerHidden" class="text-muted mb-0">ネタバレのため非表示になっています。「ネタバレを表示する」を押すと確認できます。</p>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">配役結果</div>
+  <ul class="list-group list-group-flush">
+    {% for role in required_cast %}
+    <li class="list-group-item">
+      <strong>{{ role.get("role_key", "") }}</strong>（{{ role.get("role_type", "") }}）：
+      {% if role.get("_pending_character_index") is not none %}
+      {{ pending_characters[role.get("_pending_character_index")].name }}
+      <span class="badge bg-info text-dark">新規モブキャラ</span>
+      {% else %}
+      配役済み（既存キャラクター／固定配役）
+      {% endif %}
+      <div class="small text-muted">{{ role.get("public_trait", "") }}</div>
+    </li>
+    {% else %}
+    <li class="list-group-item text-muted">役割がありませんでした。</li>
+    {% endfor %}
+  </ul>
+</div>
+
+{% if pending_characters %}
+<div class="card mb-3">
+  <div class="card-header">新規に生成されたモブキャラ</div>
+  <div class="row row-cols-1 row-cols-md-2 g-3 p-3">
+    {% for c in pending_characters %}
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="card-title">{{ c.name }}</h6>
+          <p class="card-subtitle text-muted mb-2 small">{{ c.age or "" }} / {{ c.gender or "" }}</p>
+          <p class="card-text small mb-1"><strong>性格:</strong> {{ c.personality or "" }}</p>
+          <p class="card-text small mb-0"><strong>背景:</strong> {{ c.background or "" }}</p>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if environment.get("additional_required_cast") %}
+<div class="alert alert-warning">
+  環境生成の過程で、追加で必要な役割が示唆されました。お任せモードではこれを自動反映しないため、
+  保存後に配役画面から手動で対応してください：
+  <ul class="mb-0">
+    {% for role in environment.get("additional_required_cast", []) %}
+    <li>{{ role.get("role_key", "") }}（{{ role.get("role_type", "") }}）: {{ role.get("public_trait", "") }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="card mb-4">
+  <div class="card-header">環境・小道具</div>
+  <div class="card-body">
+    <p class="mb-1"><strong>天候：</strong>{{ environment.get("weather", "") }}</p>
+    <p class="mb-0"><strong>小道具：</strong>{{ environment.get("items", []) | map(attribute="name") | join("、") }}</p>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('mystery.auto_generate_confirm', project_id=project.id, case_id=case.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="generated_json" value="{{ generated_json }}">
+  <button type="submit" class="btn btn-primary">この内容で保存する</button>
+  <a href="{{ url_for('mystery.auto_generate', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">やり直す</a>
+  <a href="{{ url_for('mystery.detail', project_id=project.id, case_id=case.id) }}" class="btn btn-outline-secondary">破棄してキャンセル</a>
+</form>
+
+<script>
+  function toggleSpoiler() {
+    const content = document.getElementById("spoilerContent");
+    const hidden = document.getElementById("spoilerHidden");
+    const label = document.getElementById("spoilerToggleLabel");
+    if (!content) { return; }
+    const showing = !content.classList.contains("d-none");
+    content.classList.toggle("d-none", showing);
+    if (hidden) { hidden.classList.toggle("d-none", !showing); }
+    label.textContent = showing ? "ネタバレを表示する" : "ネタバレを隠す";
+  }
+</script>
+{% endblock %}
