@@ -328,6 +328,7 @@ def generate_trick_view(project_id, case_id):
         try:
             trick_data = generate_trick(case, project, provider=form.provider.data)
         except AIGenerationError as exc:
+            current_app.logger.exception("トリックのAI生成に失敗しました (case_id=%s)", case.id)
             flash(f"トリックの生成に失敗しました: {exc}", "danger")
             return render_template("mystery/generate_trick.html", form=form, project=project, case=case)
 
@@ -411,6 +412,7 @@ def auto_generate(project_id, case_id):
         try:
             trick_data = generate_trick(case, project, provider=provider)
         except AIGenerationError as exc:
+            current_app.logger.exception("お任せモード：トリックのAI生成に失敗しました (case_id=%s)", case.id)
             flash(f"トリックの生成に失敗しました: {exc}", "danger")
             return render_template("mystery/auto_generate.html", form=form, project=project, case=case)
 
@@ -424,6 +426,7 @@ def auto_generate(project_id, case_id):
                 case, project, required_cast, provider=provider
             )
         except AIGenerationError as exc:
+            current_app.logger.exception("お任せモード：配役のAI生成に失敗しました (case_id=%s)", case.id)
             flash(
                 f"配役（AIモブキャラ生成）に失敗しました: {exc} "
                 "トリックの生成はまだ保存されていません。もう一度お試しになるか、"
@@ -460,6 +463,7 @@ def auto_generate(project_id, case_id):
                 trick_json_text=trick_json_text,
             )
         except AIGenerationError as exc:
+            current_app.logger.exception("お任せモード：環境・小道具のAI生成に失敗しました (case_id=%s)", case.id)
             flash(
                 f"環境・小道具の生成に失敗しました: {exc} "
                 "ここまでの生成結果はまだ保存されていません。もう一度お試しください。",
@@ -618,6 +622,7 @@ def trick_revise(project_id, case_id):
                 case, project, revision_instructions=form.revision_instructions.data, provider=form.provider.data
             )
         except AIGenerationError as exc:
+            current_app.logger.exception("トリックのAI修正に失敗しました (case_id=%s)", case.id)
             flash(f"AIによる修正に失敗しました: {exc}", "danger")
             return render_template("mystery/trick_revise.html", form=form, project=project, case=case)
 
@@ -760,6 +765,7 @@ def cast_generate_mob(project_id, case_id, role_key):
                 project, count=form.count.data, additional_notes=notes, provider=form.provider.data
             )
         except AIGenerationError as exc:
+            current_app.logger.exception("配役モブキャラのAI生成に失敗しました (case_id=%s)", case.id)
             flash(f"AI生成に失敗しました: {exc}", "danger")
             return render_template(
                 "mystery/cast_generate_mob.html", form=form, project=project, case=case, role=role
@@ -869,6 +875,7 @@ def generate_environment_view(project_id, case_id):
         try:
             environment_data = generate_environment(case, project, provider=form.provider.data)
         except AIGenerationError as exc:
+            current_app.logger.exception("環境・小道具のAI生成に失敗しました (case_id=%s)", case.id)
             flash(f"環境・小道具の生成に失敗しました: {exc}", "danger")
             return render_template(
                 "mystery/generate_environment.html", form=form, project=project, case=case
@@ -967,6 +974,7 @@ def environment_revise(project_id, case_id):
                 case, project, revision_instructions=form.revision_instructions.data, provider=form.provider.data
             )
         except AIGenerationError as exc:
+            current_app.logger.exception("環境・小道具のAI修正に失敗しました (case_id=%s)", case.id)
             flash(f"AIによる修正に失敗しました: {exc}", "danger")
             return render_template("mystery/environment_revise.html", form=form, project=project, case=case)
 
@@ -1049,6 +1057,7 @@ def evaluate(project_id, case_id):
                 case, target_text, source_label, provider=form.provider.data
             )
         except AIGenerationError as exc:
+            current_app.logger.exception("評価（Phase5）のAI生成に失敗しました (case_id=%s)", case.id)
             flash(f"評価の生成に失敗しました: {exc}", "danger")
             return render_template("mystery/evaluate.html", form=form, project=project, case=case)
 

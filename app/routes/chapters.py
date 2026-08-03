@@ -300,6 +300,9 @@ def _run_generation(
         )
     except AIGenerationError as exc:
         # AI生成エラー時：エラーメッセージ表示、ステータスをfailedへ更新、再生成可能とする
+        current_app.logger.exception(
+            "章本文のAI生成に失敗しました (project_id=%s, chapter_id=%s)", project.id, chapter.id
+        )
         chapter.generation_status = Chapter.STATUS_FAILED
         chapter.generation_error = str(exc)
         db.session.commit()
@@ -365,6 +368,9 @@ def revise(project_id, chapter_id):
             )
             revised_content = _normalize_newlines(revised_content)
         except AIGenerationError as exc:
+            current_app.logger.exception(
+                "章本文のAI修正に失敗しました (project_id=%s, chapter_id=%s)", project.id, chapter.id
+            )
             flash(f"AIによる修正に失敗しました: {exc}", "danger")
             return render_template(
                 "chapters/revise.html", form=form, project=project, chapter=chapter,
@@ -433,6 +439,9 @@ def interrogation(project_id, chapter_id):
                 provider=form.provider.data,
             )
         except AIGenerationError as exc:
+            current_app.logger.exception(
+                "尋問シナリオのAI生成に失敗しました (project_id=%s, chapter_id=%s)", project.id, chapter.id
+            )
             flash(f"尋問シナリオの生成に失敗しました: {exc}", "danger")
             return render_template(
                 "chapters/interrogation.html", form=form, project=project, chapter=chapter

@@ -54,3 +54,6 @@ class Config:
     AI_MAX_OUTPUT_TOKENS = int(os.environ.get("AI_MAX_OUTPUT_TOKENS", "8192"))
 
     WTF_CSRF_ENABLED = True
+
+    # エラーログの保存先ディレクトリ
+    LOG_DIR = Path(os.environ.get("LOG_DIR", BASE_DIR / "data" / "logs"))

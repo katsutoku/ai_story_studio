@@ -3,6 +3,7 @@ __pycache__/
 .env
 instance/
 data/chapters/*.md
+data/logs/
 venv/
 .venv/
 bins/

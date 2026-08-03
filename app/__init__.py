@@ -1,3 +1,5 @@
+import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from flask import Flask, render_template
@@ -14,6 +16,9 @@ def create_app(config_class: type = Config) -> Flask:
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
     Path(app.config["CHAPTER_MD_DIR"]).mkdir(parents=True, exist_ok=True)
     Path(app.config["CHARACTER_THUMBNAIL_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(app.config["LOG_DIR"]).mkdir(parents=True, exist_ok=True)
+
+    configure_logging(app)
 
     db.init_app(app)
     csrf.init_app(app)
@@ -44,6 +49,16 @@ def create_app(config_class: type = Config) -> Flask:
         db.create_all()
 
     return app
+
+
+def configure_logging(app: Flask) -> None:
+    log_file = Path(app.config["LOG_DIR"]) / "app.log"
+    handler = RotatingFileHandler(log_file, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    ))
+    handler.setLevel(logging.WARNING)
+    app.logger.addHandler(handler)
 
 
 def register_error_handlers(app: Flask) -> None:

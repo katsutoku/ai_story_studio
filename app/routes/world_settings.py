@@ -99,6 +99,7 @@ def generate(project_id):
                 provider=form.provider.data,
             )
         except AIGenerationError as exc:
+            current_app.logger.exception("世界設定のAI生成に失敗しました (project_id=%s)", project.id)
             flash(f"AI生成に失敗しました: {exc}", "danger")
             return render_template("world_settings/generate.html", form=form, project=project)
 
