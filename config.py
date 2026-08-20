@@ -9,6 +9,8 @@ class Config:
 
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-me")
 
+    # .envでDATABASE_URLをmysql+pymysql://...に設定すればMySQLに接続される。
+    # 未設定時はこれまで通りSQLiteにフォールバックする（開発時の後方互換のため）。
     _default_db_uri = f"sqlite:///{BASE_DIR / 'instance' / 'ai_story_studio.db'}"
     _env_db_url = os.environ.get("DATABASE_URL")
     if _env_db_url and _env_db_url.startswith("sqlite:///") and not _env_db_url.startswith("sqlite:////"):
@@ -17,6 +19,17 @@ class Config:
         _env_db_url = f"sqlite:///{(BASE_DIR / relative_part).resolve()}"
     SQLALCHEMY_DATABASE_URI = _env_db_url or _default_db_uri
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # TiDB Cloud等、TLS接続が必須なMySQL互換DBを使う場合のCA証明書パス。
+    # .envのDB_SSL_CAに相対パス（例: certs/tidb_ca.pem）を指定すればBASE_DIR基準で解決する。
+    # 未設定（SQLite利用時など）はSSLなしで接続する。
+    SQLALCHEMY_ENGINE_OPTIONS = {}
+    _db_ssl_ca = os.environ.get("DB_SSL_CA")
+    if _db_ssl_ca:
+        _db_ssl_ca_path = Path(_db_ssl_ca)
+        if not _db_ssl_ca_path.is_absolute():
+            _db_ssl_ca_path = (BASE_DIR / _db_ssl_ca_path).resolve()
+        SQLALCHEMY_ENGINE_OPTIONS["connect_args"] = {"ssl": {"ca": str(_db_ssl_ca_path)}}
 
     # 章本文(Markdown)の保存先ディレクトリ
     CHAPTER_MD_DIR = Path(
