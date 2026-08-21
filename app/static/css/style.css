@@ -33,3 +33,19 @@ textarea.markdown-editor {
   border-radius: 0.5rem;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
+
+dialog#help-dialog{
+  border-radius: 16px;
+  max-width: 800px;
+  width: 80%;
+  height: 80vh;
+}
+
+dialog#help-dialog h2{
+  margin-bottom: 40px;
+}
+
+button#close-dialog{
+  display: block;
+  margin: 0 16px 0 auto;
+}
