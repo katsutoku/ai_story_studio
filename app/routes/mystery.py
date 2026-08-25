@@ -170,23 +170,16 @@ def _merge_fixed_hints_into_cast(required_cast, fixed_hints):
 def _chapter_choices_with_content(project_id):
     chapters = (
         Chapter.query.filter_by(project_id=project_id)
-        .filter(Chapter.content_path.isnot(None))
+        .filter(Chapter.content.isnot(None), Chapter.content != "")
         .order_by(Chapter.chapter_number)
         .all()
     )
     return [(c.id, f"第{c.chapter_number}章 {c.title}") for c in chapters]
 
-
 def _read_chapter_text(project_id, chapter_id) -> str:
-    """章本文を読み込む（chapters.pyの_chapter_md_pathと同じ命名規則。Phase5評価対象の読み込み専用）"""
-    path = Path(current_app.config["CHAPTER_MD_DIR"]) / f"project_{project_id}_chapter_{chapter_id}.md"
-    if not path.exists():
-        return ""
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
-        return ""
-
+    """章本文を読み込む（DBのchapters.contentから直接取得）"""
+    chapter = Chapter.query.filter_by(id=chapter_id, project_id=project_id).first()
+    return chapter.content or "" if chapter else ""
 
 def _delete_mob_character(character: Character):
     """モブキャラを削除する（サムネイルファイルも連動削除。characters.pyの_delete_thumbnail_fileと同じ規則）"""

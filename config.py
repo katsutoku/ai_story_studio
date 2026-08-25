@@ -31,11 +31,6 @@ class Config:
             _db_ssl_ca_path = (BASE_DIR / _db_ssl_ca_path).resolve()
         SQLALCHEMY_ENGINE_OPTIONS["connect_args"] = {"ssl": {"ca": str(_db_ssl_ca_path)}}
 
-    # 章本文(Markdown)の保存先ディレクトリ
-    CHAPTER_MD_DIR = Path(
-        os.environ.get("CHAPTER_MD_DIR", BASE_DIR / "data" / "chapters")
-    )
-
     # キャラクターサムネイル画像の保存先ディレクトリ（サーバー側のローカルディスク）
     CHARACTER_THUMBNAIL_DIR = Path(
         os.environ.get("CHARACTER_THUMBNAIL_DIR", BASE_DIR / "data" / "character_thumbnails")

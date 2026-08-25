@@ -14,7 +14,6 @@ def create_app(config_class: type = Config) -> Flask:
 
     # instance / データ保存用ディレクトリを用意
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
-    Path(app.config["CHAPTER_MD_DIR"]).mkdir(parents=True, exist_ok=True)
     Path(app.config["CHARACTER_THUMBNAIL_DIR"]).mkdir(parents=True, exist_ok=True)
     Path(app.config["LOG_DIR"]).mkdir(parents=True, exist_ok=True)
 

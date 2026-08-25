@@ -1,7 +1,8 @@
+from sqlalchemy.dialects.mysql import LONGTEXT
+
 from datetime import datetime
 
 from .extensions import db
-
 
 class Project(db.Model):
     """作品（プロジェクト）"""
@@ -112,7 +113,13 @@ class Chapter(db.Model):
     summary = db.Column(db.Text, nullable=True)
     goal = db.Column(db.Text, nullable=True)  # この章で達成すべき目的
 
+    # 本文（旧: Markdownファイル保存 → Renderのディスク消失問題によりDB直接保存に変更）
+    # MySQLではTextの既定がTEXT型（最大64KB）になり長編の章で不足する可能性があるため、
+    # MySQLのときだけLONGTEXTを使うよう明示する
+    content = db.Column(db.Text().with_variant(LONGTEXT, "mysql"), nullable=True)
+    
     # 本文はMarkdownファイルとして保存し、DBには相対パスのみ保持する
+    # →旧仕様の名残。互換性のため残すが、新規書き込みはしない（将来的に削除可）
     content_path = db.Column(db.String(300), nullable=True)
 
     # AIシナリオ生成のステータス（未生成の場合はNULL）

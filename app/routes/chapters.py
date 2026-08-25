@@ -34,12 +34,6 @@ def _get_chapter_or_404(project_id, chapter_id):
         abort(404)
     return chapter
 
-
-def _chapter_md_path(project_id: int, chapter_id: int) -> Path:
-    directory = Path(current_app.config["CHAPTER_MD_DIR"])
-    return directory / f"project_{project_id}_chapter_{chapter_id}.md"
-
-
 def _normalize_newlines(text: str) -> str:
     """改行コードを \\n に統一する。
 
@@ -82,14 +76,10 @@ def create(project_id):
             title=form.title.data,
             summary=form.summary.data,
             goal=form.goal.data,
+            content="",
         )
         db.session.add(chapter)
-        db.session.commit()
-
-        # 本文用の空Markdownファイルパスを登録
-        md_path = _chapter_md_path(project.id, chapter.id)
-        chapter.content_path = str(md_path)
-        db.session.commit()
+        db.session.commit()        
 
         flash("章を作成しました。", "success")
         return redirect(url_for("chapters.list_chapters", project_id=project.id))
@@ -115,50 +105,30 @@ def edit(project_id, chapter_id):
     )
 
 
+# ── edit_content() ────────────────────────
 @chapters_bp.route("/<int:chapter_id>/content", methods=["GET", "POST"])
 def edit_content(project_id, chapter_id):
-    """章本文(Markdown)の編集画面"""
+    """章本文の編集画面（DBのchapters.contentに直接保存）"""
     project = _get_project_or_404(project_id)
     chapter = _get_chapter_or_404(project_id, chapter_id)
 
-    md_path = _chapter_md_path(project.id, chapter.id)
     form = ChapterContentForm()
 
     if form.validate_on_submit():
-        try:
-            md_path.parent.mkdir(parents=True, exist_ok=True)
-            md_path.write_text(_normalize_newlines(form.content.data or ""), encoding="utf-8")
-        except OSError:
-            # ファイル保存失敗時はDB更新を中止し、エラーメッセージを表示する
-            flash("本文の保存に失敗しました。もう一度お試しください。", "danger")
-            return render_template(
-                "chapters/edit_content.html", form=form, project=project, chapter=chapter
-            )
-
-        chapter.content_path = str(md_path)
+        chapter.content = _normalize_newlines(form.content.data or "")
         db.session.commit()
         flash("本文を保存しました。", "success")
         return redirect(url_for("chapters.list_chapters", project_id=project.id))
 
-    # GET時：ファイルが存在しない場合は空文字として表示する
-    form.content.data = _read_chapter_content(md_path)
+    form.content.data = chapter.content or ""
     return render_template(
         "chapters/edit_content.html", form=form, project=project, chapter=chapter
     )
-
 
 @chapters_bp.route("/<int:chapter_id>/delete", methods=["POST"])
 def delete(project_id, chapter_id):
     project = _get_project_or_404(project_id)
     chapter = _get_chapter_or_404(project_id, chapter_id)
-
-    md_path = _chapter_md_path(project.id, chapter.id)
-    if md_path.exists():
-        try:
-            md_path.unlink()
-        except OSError:
-            pass  # ファイル削除失敗はDB削除を妨げない
-
     db.session.delete(chapter)
     db.session.commit()
     flash("章を削除しました。", "success")
@@ -188,12 +158,6 @@ def delete_all(project_id):
 
     deleted_count = 0
     for chapter in chapters:
-        md_path = _chapter_md_path(project.id, chapter.id)
-        if md_path.exists():
-            try:
-                md_path.unlink()
-            except OSError:
-                pass
         db.session.delete(chapter)
         deleted_count += 1
 
@@ -311,23 +275,9 @@ def _run_generation(
             url_for("chapters.regenerate", project_id=project.id, chapter_id=chapter.id)
         )
 
-    md_path = _chapter_md_path(project.id, chapter.id)
-    try:
-        md_path.parent.mkdir(parents=True, exist_ok=True)
-        md_path.write_text(_normalize_newlines(content), encoding="utf-8")
-    except OSError as exc:
-        # ファイル保存失敗時はDB更新を中止し、エラーメッセージを表示する
-        chapter.generation_status = Chapter.STATUS_FAILED
-        chapter.generation_error = f"本文の保存に失敗しました: {exc}"
-        db.session.commit()
-        flash("生成された本文の保存に失敗しました。もう一度お試しください。", "danger")
-        return redirect(
-            url_for("chapters.regenerate", project_id=project.id, chapter_id=chapter.id)
-        )
-
+    chapter.content = _normalize_newlines(content)
     if title_hint:
         chapter.title = title_hint
-    chapter.content_path = str(md_path)
     chapter.generation_status = Chapter.STATUS_COMPLETED
     chapter.generation_error = None
     db.session.commit()
@@ -344,8 +294,8 @@ def revise(project_id, chapter_id):
     project = _get_project_or_404(project_id)
     chapter = _get_chapter_or_404(project_id, chapter_id)
 
-    md_path = _chapter_md_path(project.id, chapter.id)
-    existing_content = _read_chapter_content(md_path)
+    # ── revise() の existing_content 取得部分 ──
+    existing_content = chapter.content or ""
 
     if not existing_content:
         flash("この章にはまだ本文がありません。先に本文を生成してください。", "danger")
@@ -391,6 +341,7 @@ def revise(project_id, chapter_id):
     )
 
 
+# ── revise_confirm() ──────────────────────
 @chapters_bp.route("/<int:chapter_id>/revise/confirm", methods=["POST"])
 def revise_confirm(project_id, chapter_id):
     """修正結果プレビューで確認された本文で、既存のMarkdownファイルを上書きする"""
@@ -402,20 +353,11 @@ def revise_confirm(project_id, chapter_id):
         flash("本文が空のため保存できませんでした。", "danger")
         return redirect(url_for("chapters.revise", project_id=project.id, chapter_id=chapter.id))
 
-    md_path = _chapter_md_path(project.id, chapter.id)
-    try:
-        md_path.parent.mkdir(parents=True, exist_ok=True)
-        md_path.write_text(_normalize_newlines(revised_content), encoding="utf-8")
-    except OSError as exc:
-        flash(f"修正後の本文の保存に失敗しました: {exc}", "danger")
-        return redirect(url_for("chapters.revise", project_id=project.id, chapter_id=chapter.id))
-
-    chapter.content_path = str(md_path)
+    chapter.content = _normalize_newlines(revised_content)
     db.session.commit()
 
     flash("修正後の本文を保存しました。", "success")
     return redirect(url_for("chapters.edit_content", project_id=project.id, chapter_id=chapter.id))
-
 
 @chapters_bp.route("/<int:chapter_id>/interrogation", methods=["GET", "POST"])
 def interrogation(project_id, chapter_id):
@@ -448,7 +390,7 @@ def interrogation(project_id, chapter_id):
             )
 
         transcript = _normalize_newlines(transcript)
-        existing_content = _read_chapter_content(_chapter_md_path(project.id, chapter.id))
+        existing_content = chapter.content or ""
 
         return render_template(
             "chapters/interrogation_preview.html",
@@ -462,10 +404,8 @@ def interrogation(project_id, chapter_id):
         "chapters/interrogation.html", form=form, project=project, chapter=chapter
     )
 
-
 @chapters_bp.route("/<int:chapter_id>/interrogation/confirm", methods=["POST"])
 def interrogation_confirm(project_id, chapter_id):
-    """尋問シナリオのプレビューで確認された内容を、章本文に反映する（上書き／追記を選択）"""
     project = _get_project_or_404(project_id)
     chapter = _get_chapter_or_404(project_id, chapter_id)
 
@@ -474,15 +414,7 @@ def interrogation_confirm(project_id, chapter_id):
         flash("本文が空のため保存できませんでした。", "danger")
         return redirect(url_for("chapters.interrogation", project_id=project.id, chapter_id=chapter.id))
 
-    md_path = _chapter_md_path(project.id, chapter.id)
-    try:
-        md_path.parent.mkdir(parents=True, exist_ok=True)
-        md_path.write_text(_normalize_newlines(final_content), encoding="utf-8")
-    except OSError as exc:
-        flash(f"本文の保存に失敗しました: {exc}", "danger")
-        return redirect(url_for("chapters.interrogation", project_id=project.id, chapter_id=chapter.id))
-
-    chapter.content_path = str(md_path)
+    chapter.content = _normalize_newlines(final_content)
     db.session.commit()
 
     flash("尋問シナリオを本文に反映しました。", "success")
